@@ -1,0 +1,13 @@
+{
+  "extent": {
+    "west": -112.0,
+    "east": -108.0,
+    "south": 23.0,
+    "north": 27.0
+  },
+  "crs": "EPSG:4326",
+  "bathymetry": "data/processed/bathymetry.png",
+  "contours": "data/processed/contours.svg",
+  "coastline": "data/processed/coastline.geojson",
+  "labels": "data/processed/labels.geojson"
+}
