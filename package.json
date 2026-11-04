@@ -1,0 +1,16 @@
+{
+  "name": "tengai",
+  "version": "0.1.0",
+  "description": "Premium full-screen nautical visualization for the Sea of Cortez",
+  "main": "src/index.html",
+  "scripts": {
+    "dev": "node server.js",
+    "test": "jest"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "jest": "^29.0.0",
+    "http-server": "^14.1.0"
+  }
+}
