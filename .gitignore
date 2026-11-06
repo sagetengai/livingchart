@@ -8,3 +8,10 @@ dist/
 *.pyc
 __pycache__/
 .venv/
+
+artifacts/
+data/raw/
+data/processed/
+.venv-phase1/
+
+artifacts/phase-2-wind/

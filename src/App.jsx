@@ -1,3 +1,5 @@
+import CalligraphicPreview from '../experiments/phase-2-wind/CalligraphicPreview.jsx'
+import IntegratedGeography from '../experiments/phase-1-geography/IntegratedGeography.jsx'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import NewParticleMotion from './wind/renderer/NewParticleMotion.js'
 import FeedbackWindLayer from './wind/renderer/FeedbackWindLayer.js'
@@ -37,6 +39,7 @@ const WIND_COLORS = [
 const GFS_BOUNDS = [-180, 90, 180, -90]
 const GEBCO_WMS = 'https://wms.gebco.net/mapserv?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=GEBCO_LATEST&STYLES=&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&FORMAT=image/png'
 const windRendererParams = new URLSearchParams(window.location.search)
+const PHASE2 = import.meta.env.DEV && windRendererParams.has('phase2')
 const USE_FEEDBACK_WIND = windRendererParams.get('windRenderer') === 'feedback'
 
 function feedbackWindOption(name, fallback) {
@@ -326,7 +329,8 @@ function App() {
         waterMaskRef.current = waterMask
         framesRef.current = nextFrames
         boundsRef.current = Array.isArray(catalog.bounds) ? catalog.bounds : GFS_BOUNDS
-        const start = nearestFrameIndex(nextFrames, ceilUtcHourUnix())
+        const requestedTime = PHASE2 && windRendererParams.has('forecast') ? Number(windRendererParams.get('forecast')) : ceilUtcHourUnix()
+        const start = nearestFrameIndex(nextFrames, requestedTime)
         frameIndexRef.current = start
         setStatus(catalog)
         setFrames(nextFrames)
@@ -554,6 +558,13 @@ function App() {
 
   return (
     <main className="scene">
+      {PHASE2 && !USE_FEEDBACK_WIND ? <CalligraphicPreview
+        mapRef={mapRef} windLayerRef={windLayerRef} windGridRef={windGridRef}
+        mode={mode} frames={frames} frameIndex={frameIndex} goToFrame={goToFrame}
+      /> : windRendererParams.has('geography') && !USE_FEEDBACK_WIND && <IntegratedGeography
+        mapRef={mapRef} windLayerRef={windLayerRef} windGridRef={windGridRef}
+        mode={mode} frames={frames} frameIndex={frameIndex} goToFrame={goToFrame}
+      />}
       <div className="map" ref={mapContainerRef} />
       <header className="masthead">
         <div className="brand-mark" aria-hidden="true"><span /></div>

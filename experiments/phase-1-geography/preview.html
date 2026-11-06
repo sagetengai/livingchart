@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Living Chart · Geography studies</title>
+<link rel="stylesheet" href="/vendor/maplibre-gl.css">
+<style>
+*{box-sizing:border-box}body{margin:0;background:#081219;color:#c3d1d3;font:15px system-ui}header{padding:22px 28px;display:flex;gap:20px;align-items:center;flex-wrap:wrap}h1{font:24px Georgia;margin:0}select,button,a{font:inherit;color:inherit}select,button{background:#18282d;border:1px solid #40565c;border-radius:4px;padding:8px}a{margin-left:auto}#map{height:calc(100vh - 110px);min-height:320px}#status{padding:10px 28px;font-size:12px;color:#9bafb2}body.capture header,body.capture #status{display:none}body.capture #map{height:100vh}
+</style>
+<header><h1>Geography studies</h1><label>Palette <select id="palette"><option value="deep-navy">Deep navy</option><option value="blue-black">Blue-black</option><option value="muted-teal">Muted teal</option></select></label><label>Source <select id="source"><option value="image">Regional image</option><option value="tiles">XYZ tiles · navy</option></select></label><button id="reset">Reset view</button><a id="download" href="/artifacts/phase-1-geography/deep-navy-3840x2160.png">4K PNG</a></header>
+<div id="map" aria-label="Bathymetry preview"></div><div id="status" role="status">Loading geography…</div>
+<script type="module">
+import * as maplibregl from '/vendor/maplibre-gl.mjs';
+maplibregl.setWorkerUrl('/vendor/maplibre-gl-worker.mjs');
+const params=new URLSearchParams(location.search);
+if(params.has('capture'))document.body.classList.add('capture');
+const base='/artifacts/phase-1-geography/';
+const metadata=await (await fetch(base+'manifest.json')).json();
+const palette=document.querySelector('#palette'), source=document.querySelector('#source');
+palette.value=params.get('palette')||'deep-navy';source.value=params.get('source')||'image';
+const [w,s,e,n]=metadata.bounds_wsen;
+const map=new maplibregl.Map({container:'map',style:{version:8,sources:{},layers:[{id:'background',type:'background',paint:{'background-color':'#081219'}}]},bounds:[[w,s],[e,n]],fitBoundsOptions:{padding:0},maxBounds:[[w,s],[e,n]],minZoom:5,maxZoom:10,attributionControl:false,renderWorldCopies:false,fadeDuration:0});
+window.preview={map,ready:false,errors:[],metadata};
+map.on('error',event=>window.preview.errors.push(String(event.error)));
+function reset(){map.fitBounds([[w,s],[e,n]],{padding:0,duration:0});}
+function show(){
+ window.preview.ready=false;
+ if(map.getLayer('geography'))map.removeLayer('geography');
+ if(map.getSource('geography'))map.removeSource('geography');
+ if(source.value==='tiles')map.addSource('geography',{type:'raster',tiles:[location.origin+base+'tiles/{z}/{x}/{y}.png'],bounds:[w,s,e,n],minzoom:5,maxzoom:9,tileSize:256});
+ else map.addSource('geography',{type:'image',url:base+palette.value+'-3840x2160.png',coordinates:metadata.image_source_coordinates});
+ map.addLayer({id:'geography',type:'raster',source:'geography',paint:{'raster-fade-duration':0,'raster-resampling':'linear'}});
+ palette.disabled=source.value==='tiles';
+ document.querySelector('#download').href=base+(source.value==='tiles'?'deep-navy':palette.value)+'-3840x2160.png';
+ document.querySelector('#status').textContent='GEBCO 2026 · GSHHG 2.3.7 · central/southern gulf · fixed 16:9 crop · experimental';
+ map.once('idle',()=>{window.preview.ready=true});
+}
+map.on('load',show);palette.onchange=show;source.onchange=show;document.querySelector('#reset').onclick=reset;
+</script></html>
