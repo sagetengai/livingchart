@@ -83,15 +83,15 @@ export default function IntegratedGeography({ mapRef, windLayerRef, windGridRef,
         oceanApplied = false
       }
       const ocean = state.ocean
-      const nextOceanKey = renderOcean && state.view !== 'original' && (ocean.depthColor || ocean.seafloorRelief)
-        ? [nextImageUrl, ocean.palette, ocean.depthColor, ocean.seafloorRelief].join('|') : ''
+      const nextOceanKey = renderOcean && state.view !== 'original' && (ocean.depthColor || ocean.seafloorRelief || ocean.currentTexture)
+        ? [nextImageUrl, ocean.palette, ocean.depthColor, ocean.seafloorRelief, ocean.currentTexture].join('|') : ''
       if (nextOceanKey !== oceanKey) {
         oceanKey = nextOceanKey
         const revision = ++oceanRevision
         const isCurrent = () => !disposed && revision === oceanRevision
         const source = map.getSource(GEOGRAPHY)
         if (oceanKey) {
-          renderOcean(nextImageUrl, state.theme, ocean, isCurrent).then(image => {
+          renderOcean(nextImageUrl, state.theme, ocean, metadata.image_source_coordinates, isCurrent).then(image => {
             if (!image || !isCurrent()) return
             source.updateImage({ image })
             oceanApplied = true

@@ -130,7 +130,7 @@ export default function WindStudio({
             {Object.entries(oceanPalettes).map(([key, name]) => <option key={key} value={key}>{name}</option>)}
           </select>
         </label>
-        <p>Depth color and seafloor relief blend over the base bathymetry. Current controls are saved with presets.</p>
+        <p>Depth color, seafloor relief, and static current texture blend over the base bathymetry. Current motion is saved with presets.</p>
         <button onClick={() => update({ ocean: oceanDefaults(theme) })}>Reset Ocean Defaults</button>
       </details>
       <ElevationData mapRef={mapRef} regionalRelief={regionalRelief} setRegionalRelief={setRegionalRelief} />

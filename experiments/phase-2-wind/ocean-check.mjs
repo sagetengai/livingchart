@@ -20,6 +20,7 @@ try {
   const ocean = studio.locator('.studio-ocean')
   const depth = ocean.getByLabel('Depth color')
   const relief = ocean.getByLabel('Seafloor relief')
+  const texture = ocean.getByLabel('Current texture')
   const palette = ocean.getByLabel('Ocean palette')
   const chartTheme = page.getByLabel('Chart theme')
   const waitForImage = canvas => page.waitForFunction(canvas => {
@@ -44,6 +45,11 @@ try {
   const updates = () => page.evaluate(() => window.oceanCheckUpdates)
   const waitForUpdate = count => page.waitForFunction(count => window.oceanCheckUpdates > count &&
     window.livingChart.map().isSourceLoaded('phase1-bathymetry'), count)
+  const setTexture = async value => {
+    const count = await updates()
+    await texture.fill(value)
+    await waitForUpdate(count)
+  }
   await page.evaluate(() => {
     const source = window.livingChart.map().getSource('phase1-bathymetry')
     const update = source.updateImage.bind(source)
@@ -72,6 +78,7 @@ try {
     const beforeCamera = await camera()
     await depth.fill('0')
     await relief.fill('0')
+    await texture.fill('0')
     await waitForImage(false)
     const before = await capture('before-' + theme)
 
@@ -84,7 +91,28 @@ try {
     await waitForUpdate(count)
     const shaded = await capture('after-' + theme)
     assert.ok(!colored.equals(shaded))
+
+    await setTexture('0.25')
+    const textured = await capture('texture-' + theme)
+    assert.ok(!shaded.equals(textured))
     assert.deepEqual(await camera(), beforeCamera)
+
+    await setTexture('0')
+    assert.ok(shaded.equals(await capture('texture-off-' + theme)))
+
+    await setTexture('0.25')
+    const zoomCount = await updates()
+    const coordinates = () => page.evaluate(() => window.oceanCheckSource.coordinates)
+    const corners = await coordinates()
+    await page.evaluate(() => window.livingChart.map().jumpTo({ center: [-110.8, 25.85], zoom: 8.7 }))
+    await capture('texture-zoom-' + theme)
+    assert.equal(await updates(), zoomCount)
+    assert.deepEqual(await coordinates(), corners)
+    await page.evaluate(([center, zoom, bearing, pitch]) => {
+      window.livingChart.map().jumpTo({ center, zoom, bearing, pitch })
+    }, beforeCamera)
+    await capture('texture-return-' + theme)
+    assert.equal(await updates(), zoomCount)
     assert.equal(await palette.inputValue(), theme)
     const paletteCount = await updates()
     await palette.selectOption(theme === 'night' ? 'day' : 'night')
