@@ -1,22 +1,36 @@
 import { useEffect, useRef, useState } from 'react'
+import { loadLandRelief } from './landRelief.js'
 import { sampleWind } from '../../src/windData.js'
 
 const BASE = '/artifacts/phase-1-geography/'
+const DAY_IMAGE = '/artifacts/cartography/day/day.png'
 const GEOGRAPHY = 'phase1-bathymetry'
 const LAND = 'phase1-land'
+const RELIEF = 'phase1-land-relief'
+const REGIONAL_RELIEF = 'studio-regional-relief'
+const SELECTION = 'studio-elevation-selection'
 
 // Mounted only by the explicitly selected local geography comparison mode.
-export default function IntegratedGeography({ mapRef, windLayerRef, windGridRef, mode, frames, frameIndex, goToFrame, controls = true, windVisible = true }) {
+export default function IntegratedGeography({ mapRef, windLayerRef, windGridRef, mode, frames, frameIndex, goToFrame, controls = true, windVisible = true, theme = 'night',
+  studioLayers, terrain, regionalRelief, studioPalette, onStudioPaletteChange, activeCloudRef }) {
   const [view, setView] = useState('combined')
-  const [palette, setPalette] = useState('deep-navy')
+  const [localPalette, setLocalPalette] = useState('deep-navy')
+  const palette = studioPalette ?? localPalette
+  const setPalette = onStudioPaletteChange ?? setLocalPalette
   const [error, setError] = useState('')
   const context = useRef({})
   const counts = useRef({ drawCalls: 0, updates: 0, sourceLoads: 0 })
-  context.current = { view, palette, mode, frames, frameIndex, goToFrame, windVisible }
+  context.current = { view, palette, mode, frames, frameIndex, goToFrame, windVisible, theme, studioLayers, terrain, regionalRelief }
 
   useEffect(() => {
     let disposed = false, metadata, initialized = false, instrumented
-    let previousKey = ''
+    let previousKey = '', imageUrl, relief, previousRegional
+    const reliefKeys = new Map()
+    if (context.current.terrain) {
+      loadLandRelief().then(value => { relief = value }).catch(() => {
+        if (!disposed) setError('Land relief asset unavailable. Generate it with tools/cartography/render_relief.py.')
+      })
+    }
     const visibility = new Map()
     fetch(BASE + 'manifest.json').then(r => {
       if (!r.ok) throw new Error(`Geography manifest HTTP ${r.status}`)
@@ -28,14 +42,18 @@ export default function IntegratedGeography({ mapRef, windLayerRef, windGridRef,
       if (disposed || !metadata || !map) return
       // Once installed, mode changes must not wait for original WMS/cloud tiles.
       if (!initialized && !map.isStyleLoaded()) return
+      const state = context.current
+      const day = state.theme === 'day'
+      const nextImageUrl = day ? DAY_IMAGE : BASE + state.palette + '-3840x2160.png'
       if (!initialized) {
         const [w, s, e, n] = metadata.bounds_wsen
         map.setMaxBounds([[w, s], [e, n]])
         map.fitBounds([[w, s], [e, n]], { padding: 0, duration: 0 })
-        map.addSource(GEOGRAPHY, { type: 'image', url: BASE + 'deep-navy-3840x2160.png', coordinates: metadata.image_source_coordinates })
+        map.addSource(GEOGRAPHY, { type: 'image', url: nextImageUrl, coordinates: metadata.image_source_coordinates })
         map.addLayer({ id: GEOGRAPHY, type: 'raster', source: GEOGRAPHY, paint: { 'raster-fade-duration': 0, 'raster-resampling': 'linear' } })
         map.addSource(LAND, { type: 'geojson', data: BASE + 'coastline.geojson' })
         map.addLayer({ id: LAND, type: 'fill', source: LAND, paint: { 'fill-color': metadata.land, 'fill-opacity': 1, 'fill-antialias': true } })
+        imageUrl = nextImageUrl
         initialized = true
       }
       if (wind?.gl && wind !== instrumented) {
@@ -55,29 +73,102 @@ export default function IntegratedGeography({ mapRef, windLayerRef, windGridRef,
           wind.bindAndDrawParticles = draw; wind.updateParticles = update; wind.finalizeSourceLoad = loaded
         }
       }
-      const state = context.current
-      const layers = map.getStyle().layers
-      // A late wind/cloud load must also get the comparison visibility/order.
-      // getStyle().layers omits custom layers; include the actual draw order so
-      // a wind layer arriving after the geography also gets placed correctly.
-      const key = [state.view, state.palette, state.windVisible, ...map.getLayersOrder()].join('|')
-      if (key === previousKey) return
-      previousKey = key
-      map.getSource(GEOGRAPHY).updateImage({ url: BASE + state.palette + '-3840x2160.png' })
-      const custom = state.view !== 'original'
-      for (const layer of layers) {
-        if ([GEOGRAPHY, LAND, 'cortez-wind'].includes(layer.id)) continue
-        if (!visibility.has(layer.id)) visibility.set(layer.id, map.getLayoutProperty(layer.id, 'visibility') || 'visible')
-        map.setLayoutProperty(layer.id, 'visibility', custom ? 'none' : visibility.get(layer.id))
+      if (imageUrl !== nextImageUrl) {
+        map.getSource(GEOGRAPHY).updateImage({ url: nextImageUrl })
+        imageUrl = nextImageUrl
       }
-      for (const id of [GEOGRAPHY, LAND]) map.setLayoutProperty(id, 'visibility', custom ? 'visible' : 'none')
+      const studio = state.studioLayers
+      const terrain = state.terrain
+      const paint = (id, property, value) => {
+        if (map.getLayer(id) && map.getPaintProperty(id, property) !== value) {
+          map.setPaintProperty(id, property, value)
+        }
+      }
+      // Keep the fill as the wind insertion anchor even when Day uses its baked land.
+      const landOpacity = day && !terrain?.landColor ? 0 : studio?.land.opacity ?? 1
+      paint(LAND, 'fill-opacity', landOpacity)
+      paint(LAND, 'fill-color', terrain?.landColor ?? metadata.land)
+      const regional = state.regionalRelief
+      if (previousRegional !== regional) {
+        if (map.getLayer(REGIONAL_RELIEF)) map.removeLayer(REGIONAL_RELIEF)
+        if (map.getSource(REGIONAL_RELIEF)) map.removeSource(REGIONAL_RELIEF)
+        reliefKeys.delete(REGIONAL_RELIEF)
+        previousRegional = regional
+      }
+      const showRelief = terrain?.visible && state.view !== 'original'
+      const reliefLayers = [
+        [RELIEF, relief, metadata.image_source_coordinates, showRelief],
+        [REGIONAL_RELIEF, regional, regional?.coordinates, showRelief && !!regional],
+      ]
+      for (const [id, image, coordinates, visible] of reliefLayers) {
+        if (!image || !terrain) continue
+        const cutout = id === RELIEF ? regional?.coordinates : undefined
+        const key = [terrain.contrast, terrain.shadows, terrain.highlights, cutout].join('|')
+        if (visible && reliefKeys.get(id) !== key) {
+          image.recolor(terrain, coordinates, cutout)
+          const source = map.getSource(id)
+          if (source) {
+            source.play()
+            map.once('render', () => { if (!disposed && map.getSource(id) === source) source.pause() })
+          }
+          reliefKeys.set(id, key)
+        }
+        if (visible && !map.getLayer(id)) {
+          map.addSource(id, { type: 'canvas', canvas: image.canvas, animate: false, coordinates })
+          map.addLayer({ id, type: 'raster', source: id,
+            paint: { 'raster-fade-duration': 0, 'raster-opacity': terrain.opacity } })
+        }
+        paint(id, 'raster-opacity', terrain.opacity)
+        if (map.getLayer(id)) {
+          const visibility = visible ? 'visible' : 'none'
+          if (map.getLayoutProperty(id, 'visibility') !== visibility) map.setLayoutProperty(id, 'visibility', visibility)
+        }
+      }
+      const cloudId = activeCloudRef?.current?.layerId
+      if (studio) {
+        paint(GEOGRAPHY, 'raster-opacity', studio.bathymetry.opacity)
+        paint('cortez-coastline', 'line-opacity', studio.coastline.opacity)
+        if (cloudId) paint(cloudId, 'raster-opacity', studio.clouds.opacity)
+      }
+      const layers = map.getStyle().layers
+      // getStyle().layers omits custom layers. Use draw order to catch late arrivals.
+      const flags = [state.view, state.palette, state.windVisible, cloudId,
+        studio?.land.visible, studio?.bathymetry.visible, studio?.clouds.visible, studio?.coastline.visible]
+      const key = [...flags, ...map.getLayersOrder()].join('|')
+      if (key === previousKey) return
+      const custom = state.view !== 'original'
+      const show = (id, visible) => map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none')
+      for (const layer of layers) {
+        if ([GEOGRAPHY, LAND, RELIEF, REGIONAL_RELIEF, SELECTION, 'cortez-wind'].includes(layer.id)) continue
+        if (!visibility.has(layer.id)) visibility.set(layer.id, map.getLayoutProperty(layer.id, 'visibility') || 'visible')
+        const studioVisible = layer.id === 'cortez-coastline' && studio?.coastline.visible ||
+          layer.id.startsWith('goes-cloud-layer-') && studio?.clouds.visible
+        map.setLayoutProperty(layer.id, 'visibility', custom ? (studioVisible ? 'visible' : 'none') : visibility.get(layer.id))
+      }
+      show(GEOGRAPHY, custom && (studio?.bathymetry.visible ?? true))
+      show(LAND, custom && (studio?.land.visible ?? true))
       if (map.getLayer('cortez-wind')) {
         if (custom) {
           map.moveLayer(GEOGRAPHY, 'cortez-wind')
-          map.moveLayer(LAND)
+          if (studio) {
+            for (const layer of layers) {
+              if (layer.id.startsWith('goes-cloud-layer-')) map.moveLayer(layer.id, 'cortez-wind')
+            }
+          }
+          if (terrain) {
+            map.moveLayer(LAND, 'cortez-wind')
+            for (const id of [RELIEF, REGIONAL_RELIEF]) {
+              if (map.getLayer(id)) map.moveLayer(id, 'cortez-wind')
+            }
+            if (map.getLayer('phase2-wind')) map.moveLayer('phase2-wind')
+          } else {
+            map.moveLayer(LAND)
+          }
+          if (studio && map.getLayer('cortez-coastline')) map.moveLayer('cortez-coastline')
         }
         wind.readyForDisplay = state.view !== 'geography' && state.windVisible
       }
+      previousKey = [...flags, ...map.getLayersOrder()].join('|')
       map.triggerRepaint()
     }
     const timer = setInterval(apply, 200)
@@ -91,7 +182,7 @@ export default function IntegratedGeography({ mapRef, windLayerRef, windGridRef,
       snapshot: () => {
         const wind = windLayerRef.current, grid = windGridRef.current, map = mapRef.current
         const state = context.current
-        return { ...counts.current, view: state.view, palette: state.palette, mode: state.mode,
+        return { ...counts.current, view: state.view, palette: state.palette, theme: state.theme, mode: state.mode,
           frameIndex: state.frameIndex, validTime: state.frames[state.frameIndex],
           activeParticleCount: wind?.liveCount, ready: wind?.readyForDisplay, sourceLoaded: wind?.sourceLoaded,
           renderer: wind?.constructor.name, rendererRangesMph: [wind?.valueRange_u, wind?.valueRange_v],
@@ -121,14 +212,14 @@ export default function IntegratedGeography({ mapRef, windLayerRef, windGridRef,
         for (const [id, value] of visibility) {
           if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', value)
         }
-        for (const id of [LAND, GEOGRAPHY]) {
+        for (const id of [REGIONAL_RELIEF, RELIEF, LAND, GEOGRAPHY]) {
           if (map.getLayer(id)) map.removeLayer(id)
           if (map.getSource(id)) map.removeSource(id)
         }
       }
       if (windLayerRef.current) windLayerRef.current.readyForDisplay = true
     }
-  }, [mapRef, windLayerRef, windGridRef])
+  }, [mapRef, windLayerRef, windGridRef, activeCloudRef])
 
   return <>
     <style>{`

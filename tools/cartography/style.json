@@ -1,0 +1,31 @@
+{
+  "land": {
+    "ramp": [[0, "#9eae89"], [120, "#b5be93"], [450, "#e5d59f"], [850, "#dfbd8e"], [1400, "#c88b73"], [2000, "#ba7974"], [2800, "#c89a9a"]],
+    "hillshade": {
+      "exaggeration": 1.65,
+      "blend": 0.34,
+      "lights": [
+        {"azimuth": 315, "altitude": 48, "weight": 0.58},
+        {"azimuth": 260, "altitude": 55, "weight": 0.27},
+        {"azimuth": 30, "altitude": 60, "weight": 0.15}
+      ]
+    }
+  },
+  "ocean": {
+    "ramp": [[0, "#79c3bc"], [35, "#89cbca"], [105, "#a2cbd6"], [200, "#8fbacb"], [550, "#649ab4"], [1250, "#467997"], [2500, "#365b76"], [4600, "#344654"]],
+    "hillshade": {
+      "exaggeration": 3.3,
+      "blend": 0.62,
+      "lights": [
+        {"azimuth": 315, "altitude": 43, "weight": 0.8},
+        {"azimuth": 250, "altitude": 54, "weight": 0.2}
+      ]
+    }
+  },
+  "shelf": {
+    "color": "#c9e9e1",
+    "depth_ramp": [[0, 0.04], [35, 0.16], [110, 0.20], [210, 0.07], [320, 0.0]]
+  },
+  "texture": {"seed": 42, "strength": 0.025, "scale_pixels": 3},
+  "vignette": {"color": "#a77d53", "start_radius": 0.46, "end_radius": 1.4, "opacity": 0.19}
+}

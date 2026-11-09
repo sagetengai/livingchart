@@ -1,6 +1,88 @@
 # Phase 2 wind studies
 
-Open [the local preview](http://127.0.0.1:8092/?phase2=1). The default study is Calligraphic. Use **Renderer** to compare with the existing particles, **Treatment** to switch among the three ribbon presets, and **Tune strokes** to change the eight artistic controls. All treatments share the forecast and the Phase 1 map. The experiment is enabled by the development server and the `phase2` query parameter.
+Run `npm run dev -- --host 127.0.0.1 --port 8092` from the project root and open [the local Phase 2 preview](http://127.0.0.1:8092/?phase2=1). Expand **Wind Studio** in the upper right. Use the preview's **Theme** selector to switch between Day and Night, and **Renderer** to compare History ribbons with Original particles. The panel is available only in the Vite development preview.
+
+## Wind Studio controls
+
+| Control | Effect |
+| --- | --- |
+| Particle count | 100–2,400 ribbon head slots. Diagnostics shows the applied capacity. GPUs with a smaller texture limit report the limit when you click Apply. |
+| History positions | Number of stored points per ribbon, sampled at 10 Hz. |
+| Trail width and taper strength | Nominal screen-space width from 0.5–5 CSS pixels and the existing 0.3–2 taper range. |
+| Trail opacity | Base ribbon opacity from 0–100%, multiplied by the theme and Wind layer opacity and capped at 100% before the trail envelope. |
+| Speed multiplier | Visual advection rate through the existing forecast. |
+| Trail lifetime and fade duration | Base head lifetime and the time a stopped head fades before respawning. |
+| Random seed | Unsigned 32-bit seed for the existing shader. The shader fixes the seeding distribution. |
+| Wind tint | RGB tint shared by both renderers for the current theme. |
+| Night palette | Selects an existing sea treatment. Day uses the fixed Sculpted Atlas raster. |
+| Wind | Toggles the selected renderer's visibility and scales its opacity. |
+| Land | Controls the separate Night fill. Day land shading is part of the Bathymetry image. |
+| Bathymetry | Controls visibility and opacity of the current theme raster. |
+| Clouds | Controls the existing GOES observation layer when available. |
+| Coastline | Controls the existing coastline line overlay independently of the land fill. |
+| Effects | The active ribbon layer uses normal blending. Bloom and accumulation are reserved for the compositor. |
+| Diagnostics | Ribbon FPS uses measured frame time. Active heads count advancing ribbon heads, or the original renderer's live particles. Water percentages describe the original global wind grid and regional ribbon coast mask separately. **Show masks** displays both as read-only thumbnails, with water in blue. |
+
+Width, taper, opacity, speed, lifetime, fade, tint, palettes, and layer controls update live. Count and history require new GPU buffers. Seed changes restart ribbons so the new seed and existing history stay consistent. **Apply** commits all three together. Changing the theme, selecting a treatment, or loading, importing, or resetting a preset stages those three values while applying the live settings. The three staged values belong to the current theme. The running ribbon buffers stay in use until you click **Apply**.
+
+**Save Preset** and **Load Preset** use separate browser storage slots for Day and Night. **Reset to Defaults** restores the current theme's settings and leaves its saved slot available. **Export JSON** includes staged settings, and **Import JSON** validates the file against the currently selected theme. Both version 1 and version 2 files load from the existing storage slots. Legacy seed counts from 50 to 99 are preserved on load. Editing the count uses the new range.
+
+Version 2 stores `theme`, `palette`, `mapLayers`, and one `windLayer` object. The `WindLayerConfig` fields are `id`, `name`, `enabled`, `seedCount`, `seed`, `history`, `color`, `opacity`, `layerOpacity`, `width`, `taper`, `speed`, `lifetime`, `fade`, `blendMode`, and `effects`. The current layer has ID `phase2-wind` and name `History ribbons`. The supported blend mode is `normal`. Both `effects.bloom` and `effects.accumulation` must be false.
+
+The browser check uses the existing Playwright tooling with Chrome and a running dev preview. An optional final path writes the screenshot.
+
+```sh
+node experiments/phase-2-wind/studio-check.mjs /absolute/path/to/playwright /tmp/wind-studio.png
+```
+
+## Terrain controls
+
+Expand **Terrain** in Wind Studio to set the land base color and toggle relief. Relief opacity controls the overall blend. Contrast scales the tonal departures from neutral, and Shadow and Highlight strength scale the dark and light sides independently. Night starts with blue-charcoal land and 25% relief. Day starts with its original baked land plate and relief hidden. A Day color override uses the separate land fill, and **Use baked Day land** restores the original plate.
+
+Terrain is saved with the current theme in version 2 preset JSON. Existing presets without a terrain entry load the theme defaults. Ocean shading is part of the existing palette images.
+
+The relief source uses the Phase 1 EPSG:3857 crop and the existing Day land plate's GSHHG alpha. It draws above the land fill and below wind. The preview recolors the raster only when the tonal controls change. MapLibre handles pan and zoom on the same image coordinates.
+
+Generate the relief using the existing cartography environment.
+
+```sh
+.venv-phase1/bin/python tools/cartography/render_relief.py --elevation /path/to/gebco_2026_n30.0_s22.0_w-115.0_e-108.0_geotiff.tif
+```
+
+The generator computes northwest lighting from the original GEBCO elevation, using land-only neighbors at the coast. The PNG and georeferencing manifest go under `artifacts/cartography/terrain/`. The 15 arc-second source limits the terrain detail at close zooms.
+
+To repeat the browser checks and capture the four terrain views, run this against the local preview on port 18195.
+
+```sh
+node experiments/phase-2-wind/terrain-check.mjs /absolute/path/to/playwright /tmp/terrain-check
+```
+
+## OpenTopography elevation data
+
+Copy `.env.example` to `.env.local` and fill in the private `OPENTOPO_API_KEY` and `LIVINGCHART_DATA_DIR`. The storage path must be an existing absolute directory on the mounted data drive. Start the elevation backend and Vite in separate terminals.
+
+```sh
+.venv-phase1/bin/python tools/cartography/elevation_server.py
+npm run dev -- --host 127.0.0.1 --port 18197
+```
+
+Open [the local Phase 2 preview](http://127.0.0.1:18197/?phase2=1), then expand **Wind Studio** and **Elevation Data**. The initial selection is the La Paz test region. Choose a viewport or enter bounds manually. **Preview region and estimate** draws the footprint and reports the estimated uncompressed size and cached tile count. **Download elevation data** starts the job, and **Apply to Preview** swaps in the regional relief below wind. The original relief remains visible outside the selected region. **Restore original terrain** brings it back inside the region. The active theme's Terrain controls still govern visibility and style.
+
+The backend writes original GeoTIFFs and metadata under `sources/opentopography/COP30/` and georeferenced grayscale PNGs under `renders/terrain/`. The browser loads only the preview PNG, capped at 1,200 pixels on the long edge. The larger relief is capped at 4,096 pixels. Both use the Phase 1 GSHHG coastline and Web Mercator. Selections are restricted to the existing coastline footprint and four square degrees, with requests split into tiles of at most one degree per side. The backend serializes jobs per data library and limits requests to 50 per rolling day. Cancellation takes effect between download reads or raster processing steps.
+
+COP30 is a digital surface model that can include vegetation and built features. Credit the Copernicus DEM and OpenTopography when using derived outputs. [Dataset and licensing](https://portal.opentopography.org/datasetMetadata?otCollectionID=OT.032021.4326.1) · [API limits](https://opentopography.org/developers)
+
+## Stage 4A performance
+
+Chrome with ANGLE Metal on Apple M3, 1440 × 1000 drawing buffer at DPR 1, Night Calligraphic, 96 history positions, and the same camera and forecast. Each count warmed up before a five-second sample, with the Studio closed to exclude its diagnostic readback. FPS and P95 measure the full map frame interval.
+
+| Seed capacity | Spawned GPU slots | Mean FPS | P95 frame | History texture |
+| ---: | ---: | ---: | ---: | ---: |
+| 480 | 480 | 60.0 | 17.8 ms | 720 KiB |
+| 960 | 960 | 60.1 | 17.6 ms | 1,440 KiB |
+| 1,920 | 1,920 | 60.0 | 17.7 ms | 2,880 KiB |
+
+Frame cadence stayed near 60 FPS in this profile while history memory scaled linearly. The sample does not measure GPU headroom beyond that cadence. The browser check also applies the 2,400-slot maximum.
 
 ## How the strokes work
 

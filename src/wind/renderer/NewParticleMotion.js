@@ -234,6 +234,7 @@ const fragmentShader =
     precision mediump float;
 
     uniform sampler2D u_wind_color;  // Colormap texture
+    uniform vec4 u_appearance_color; // RGB override, enabled by alpha
     uniform sampler2D u_velocity_texture;  // Wind velocity texture
     uniform mediump float u_opacity;         // Global opacity control
     uniform mediump vec2 u_value_range_u;    // Wind U component range
@@ -283,16 +284,17 @@ const fragmentShader =
         );
 
         // Sample color from colormap using normalized speed
-        vec4 color = texture(u_wind_color, vec2(normalizedSpeed, 0.5));
+        vec3 color = mix(texture(u_wind_color, vec2(normalizedSpeed, 0.5)).rgb,
+            u_appearance_color.rgb, u_appearance_color.a);
 
         float centerLight = 1.0 - smoothstep(0.0, 0.42, dist);
-        color.rgb *= mix(0.82, 1.08, centerLight);
+        color *= mix(0.82, 1.08, centerLight);
 
         // Combine edge fade with opacity
         float finalAlpha = edgeFactor * v_trail_alpha * u_opacity;
 
         // Output final color with alpha
-        fragColor = vec4(color.rgb, finalAlpha);
+        fragColor = vec4(color, finalAlpha);
     }
 `;
 
@@ -1171,10 +1173,17 @@ export default class NewParticleMotion {
         return program;
     }
 
+    setAppearance(appearance) {
+        this.appearance = appearance;
+        this.map?.triggerRepaint();
+    }
+
     setParticleRenderUniforms(gl, renderProgram) {
         gl.uniform4fv(renderProgram.u_bounds, this.bounds);
         gl.uniform1f(renderProgram.u_point_size, this.pointSize);
-        gl.uniform1f(renderProgram.u_opacity, this.fadeOpacity);
+        const rgb = this.appearance?.rgb;
+        gl.uniform4f(renderProgram.u_appearance_color, rgb?.[0] ?? 0, rgb?.[1] ?? 0, rgb?.[2] ?? 0, rgb ? 1 : 0);
+        gl.uniform1f(renderProgram.u_opacity, this.fadeOpacity * (this.appearance?.opacityMultiplier ?? 1));
         gl.uniform1f(renderProgram.u_trail_length, this.trailLength);
         gl.uniform1f(renderProgram.u_trail_size_decay, this.trailSizeDecay);
         gl.uniform2f(renderProgram.u_viewport_px, gl.canvas.width, gl.canvas.height);

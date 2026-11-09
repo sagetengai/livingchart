@@ -4,12 +4,34 @@ void main() {
   gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
 }`
 
+const coastalWater = `
+uniform sampler2D u_coast;
+uniform vec4 u_coastBounds;
+bool isWater(vec2 mercator, bool clipEdge) {
+  vec2 uv = (mercator - u_coastBounds.xy) / (u_coastBounds.zw - u_coastBounds.xy);
+  if (any(lessThan(uv,vec2(0.0))) || any(greaterThanEqual(uv,vec2(1.0)))) return false;
+  // Be conservative for stroke pixels whose footprint touches a land texel.
+  if (clipEdge) {
+    ivec2 size = textureSize(u_coast,0);
+    ivec2 cell = ivec2(floor(uv * vec2(size) - 0.5));
+    ivec2 lo = clamp(cell,ivec2(0),size-1);
+    ivec2 hi = clamp(cell+1,ivec2(0),size-1);
+    return texelFetch(u_coast,lo,0).r < 0.5 &&
+      texelFetch(u_coast,ivec2(hi.x,lo.y),0).r < 0.5 &&
+      texelFetch(u_coast,ivec2(lo.x,hi.y),0).r < 0.5 &&
+      texelFetch(u_coast,hi,0).r < 0.5;
+  }
+  return texture(u_coast,uv).r < 0.5;
+}
+`
+
 export const simulation = `#version 300 es
 precision highp float;
 precision highp int;
 uniform sampler2D u_state, u_wind, u_previousWind;
 uniform vec2 u_rangeU, u_rangeV, u_previousU, u_previousV;
-uniform vec4 u_viewport;
+uniform vec4 u_viewport, u_visible;
+${coastalWater}
 uniform float u_dt, u_speed, u_lifetime, u_fade, u_blend;
 uniform uint u_seed;
 uniform bool u_rk2;
@@ -38,19 +60,34 @@ bool field(sampler2D tex, vec2 ru, vec2 rv, vec2 position, out vec2 wind) {
   wind /= total; return true;
 }
 bool velocity(vec2 p, out vec2 v) {
+  float lat = radians(90.0 - p.y * 180.0);
+  vec2 mercator = vec2(fract(p.x), 0.5-log(tan(0.78539816339+lat*0.5))/6.28318530718);
+  if (!isWater(mercator,false)) return false;
   vec2 now, old;
   bool valid = field(u_wind, u_rangeU, u_rangeV, p, now);
   if (!valid) { v = vec2(0.0); return false; }
   if (u_blend < 1.0 && field(u_previousWind, u_previousU, u_previousV, p, old)) now = mix(old, now, u_blend);
-  float latitude = radians(90.0 - p.y * 180.0);
   // m/s -> degrees/s -> normalized geographic coordinates. Visual time acceleration only.
-  v = now * vec2(1.0/(111320.0 * max(cos(latitude),0.087) * 360.0), -1.0/(111320.0*180.0)) * u_speed;
+  v = now * vec2(1.0/(111320.0 * max(cos(lat),0.087) * 360.0), -1.0/(111320.0*180.0)) * u_speed;
   return length(now) > 0.15;
 }
 vec4 spawn(int id, float generation) {
   uint key = hash(uint(id) + u_seed) + uint(generation) * 1789u;
   vec2 r = vec2(random(key), random(key + 137u));
-  return vec4(mix(u_viewport.xy, u_viewport.zw, r), 0.0, generation);
+  // Jitter each stratum and rotate assignments on retries.
+  int count = textureSize(u_state,0).x;
+  int columns = int(ceil(sqrt(float(count)*1.2)));
+  int rows = (count + columns - 1) / columns;
+  int cell = (id + ((int(generation)-1) % count) * 137) % count;
+  vec2 p = mix(u_visible.xy,u_visible.zw,(vec2(cell % columns,cell / columns)+r)/vec2(columns,rows));
+  if (id % 10 == 0 && int(generation) % 2 == 1) {
+    int side = int(key % 4u);
+    if (side == 0) p = mix(u_viewport.xy,vec2(u_visible.x,u_viewport.w),r);
+    if (side == 1) p = mix(vec2(u_visible.z,u_viewport.y),u_viewport.zw,r);
+    if (side == 2) p = mix(u_viewport.xy,vec2(u_viewport.z,u_visible.y),r);
+    if (side == 3) p = mix(vec2(u_viewport.x,u_visible.w),u_viewport.zw,r);
+  }
+  return vec4(p, 0.0, generation);
 }
 void main() {
   int id = int(gl_FragCoord.x);
@@ -73,7 +110,10 @@ void main() {
   bool outside = cameraX < u_viewport.x || cameraX > u_viewport.z || s.y < u_viewport.y || s.y > u_viewport.w;
   vec2 endpoint;
   valid = valid && next.y > 0.028 && next.y < 0.972 && velocity(next, endpoint);
-  if (!valid || outside) { nextState = vec4(s.xy,-u_dt,s.w); return; }
+  if (!valid || outside) {
+    nextState = s.z <= u_dt ? spawn(id,s.w+1.0) : vec4(s.xy,-u_dt,s.w);
+    return;
+  }
   nextState = vec4(next,s.z+u_dt,s.w);
 }`
 
@@ -138,11 +178,25 @@ void main() {
 
 export const ink = `#version 300 es
 precision highp float;
+uniform vec3 u_inkColor;
+uniform float u_vesselLight;
+uniform vec2 u_resolution;
+uniform mat3 u_ground;
+${coastalWater}
 in float v_edge, v_halfWidth, v_alpha;
 out vec4 color;
 void main() {
   float aa=max(fwidth(v_edge),0.7);
   float coverage=1.0-smoothstep(max(0.0,v_halfWidth-aa*0.5),v_halfWidth+aa*0.5,abs(v_edge));
   float alpha=coverage*v_alpha;
-  color=vec4(vec3(0.64,0.78,0.83)*alpha,alpha);
+  if (alpha <= 0.0) discard;
+  vec3 ground = u_ground * vec3(gl_FragCoord.xy / u_resolution * 2.0 - 1.0, 1.0);
+  if (!isWater(ground.xy / ground.z,true)) discard;
+  // Screen distance keeps the pool of light round across viewport shapes and pixel ratios.
+  float distanceToVessel = length(gl_FragCoord.xy - 0.5 * u_resolution) /
+    min(u_resolution.x, u_resolution.y);
+  float nearVessel = 1.0 - smoothstep(0.04, 0.64, distanceToVessel);
+  vec3 ink = mix(u_inkColor, vec3(0.87, 0.98, 1.0), 0.48 * u_vesselLight * nearVessel);
+  alpha = min(1.0, alpha * mix(1.0, mix(0.48, 1.9, nearVessel), u_vesselLight));
+  color=vec4(ink*alpha,alpha);
 }`

@@ -272,7 +272,7 @@ export function sampleWind(grid, longitude, latitude) {
   return windFromComponents(u, v)
 }
 
-export async function fetchWindGrid(url, bounds, waterMask) {
+export async function fetchWindGrid(url, bounds, waterMask, { retainUnmaskedPixels = false } = {}) {
   const response = await fetch(url)
   if (!response.ok) {
     throw new Error(`Wind forecast image HTTP ${response.status}`)
@@ -290,6 +290,7 @@ export async function fetchWindGrid(url, bounds, waterMask) {
     if (!context) throw new Error('Could not create a canvas to sample the wind forecast.')
     context.drawImage(bitmap, 0, 0)
     const pixels = context.getImageData(0, 0, bitmap.width, bitmap.height).data
+    const unmaskedPixels = retainUnmaskedPixels ? pixels.slice() : undefined
     if (waterMask) {
       if (waterMask.width !== bitmap.width || waterMask.height !== bitmap.height) {
         throw new Error(`Land mask dimensions ${waterMask.width}×${waterMask.height} do not match wind grid ${bitmap.width}×${bitmap.height}.`)
@@ -305,6 +306,7 @@ export async function fetchWindGrid(url, bounds, waterMask) {
       width: bitmap.width,
       height: bitmap.height,
       pixels,
+      ...(unmaskedPixels && { unmaskedPixels }),
       cellSizeDegrees: GFS_GRID_STEP_DEGREES,
       source: embedJpegDescription(
         context.canvas.toDataURL('image/jpeg', 0.96),

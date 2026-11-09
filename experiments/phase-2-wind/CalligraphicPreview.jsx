@@ -1,12 +1,22 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import IntegratedGeography from '../phase-1-geography/IntegratedGeography.jsx'
-import HistoryWindLayer, { PRESETS } from './HistoryWindLayer.js'
+import HistoryWindLayer, { PRESETS, loadCoastMask } from './HistoryWindLayer.js'
+import WindStudio from './WindStudio.jsx'
+import { defaults, palettes, resourceKeys } from './windStudioSettings.js'
 
 const params = new URLSearchParams(location.search)
-const seed = Number(params.get('seed') || 20261105)
+const seed = Number(params.get('seed') || 20261105) >>> 0
 const manual = params.has('audit')
-const ranges = { count:[100,1200,20], history:[24,160,8], width:[0.5,3,0.05], taper:[0.3,2,0.05], opacity:[0.1,0.8,0.02], speed:[500,3000,100], lifetime:[12,40,1], fade:[1,6,0.25] }
-const labels = {count:'Particle count',history:'History positions',width:'Trail width',taper:'Taper strength',opacity:'Trail opacity',speed:'Speed multiplier',lifetime:'Trail lifetime',fade:'Fade duration'}
+const themeOpacity = { day: 1.25, night: 1.12 }
+
+function windAppearance(tint, opacityMultiplier) {
+  const rgb = tint.slice(1).match(/../g).map(channel => parseInt(channel, 16) / 255)
+  return { rgb, opacityMultiplier }
+}
+
+function ribbonUniforms({ width, taper, opacity, speed, lifetime, fade }) {
+  return { width, taper, opacity, speed, lifetime, fade }
+}
 
 // Original-renderer deterministic stepping lives only in the experimental audit.
 function controlOriginal(wind) {
@@ -40,34 +50,129 @@ function controlOriginal(wind) {
 }
 
 export default function CalligraphicPreview(props) {
-  const [renderer,setRenderer]=useState('experimental'), [preset,setPreset]=useState('calligraphic')
-  const [options,setOptions]=useState({...PRESETS.calligraphic}), [palette,setPalette]=useState('deep-navy')
+  const [renderer,setRenderer]=useState('experimental')
+  const [treatments, setTreatments] = useState({ day: 'calligraphic', night: 'calligraphic' })
+  const [theme, setTheme] = useState('night')
+  const [regionalRelief, setRegionalRelief] = useState(null)
+  const [themes, setThemes] = useState(() => ({ day: defaults('day', seed), night: defaults('night', seed) }))
+  const [applied, setApplied] = useState(() => ({ count: PRESETS.calligraphic.count, history: PRESETS.calligraphic.history, seed }))
   const [status,setStatus]=useState('Loading GFS and geography…'), [error,setError]=useState('')
-  const layerRef=useRef(null), context=useRef({})
-  context.current={renderer,preset,options,palette,...props}
+  const [ready, setReady] = useState(false)
+  const layerRef=useRef(null), context=useRef({}), coverageCache=useRef({})
+  const preset = treatments[theme]
+  const settings = themes[theme]
+  const palette = themes.night.palette
+  const pending = resourceKeys.some(key => settings[key] !== applied[key])
+
+  const update = (changes, target = theme) => setThemes(current => ({
+    ...current, [target]: { ...current[target], ...changes },
+  }))
+  const setPalette = value => {
+    if (Object.hasOwn(palettes, value)) update({ palette: value }, 'night')
+  }
+  const selectTreatment = name => {
+    if (!Object.hasOwn(PRESETS, name)) return
+    setTreatments(current => ({ ...current, [theme]: name }))
+    update(PRESETS[name])
+  }
+  const applyResources = ({ count, history, seed }) => {
+    const layer = layerRef.current
+    if (!layer) throw new Error('Wait for the ribbon renderer to load.')
+    const resized = count !== layer.options.count || history !== layer.options.history
+    const reseeded = seed !== layer.seed
+    layer.configure({ count, history })
+    if (reseeded && !resized) {
+      layer.reset()
+      layer.map.triggerRepaint()
+    }
+    layer.seed = seed
+    setApplied({ count, history, seed })
+  }
+  const getDiagnostics = useCallback(() => {
+    const { renderer, settings } = context.current
+    const layer = layerRef.current
+    const original = props.windLayerRef.current
+    const grid = props.windGridRef.current
+    if (grid && grid !== coverageCache.current.grid) {
+      let water = 0
+      for (let i = 2; i < grid.pixels.length; i += 4) water += Number(grid.pixels[i] >= 128)
+      Object.assign(coverageCache.current, { grid, coverage: water / (grid.width * grid.height) })
+    }
+    const coast = layer?.coast
+    if (coast && coast !== coverageCache.current.coast) {
+      let water = 0
+      for (const alpha of coast.pixels) water += Number(alpha < 128)
+      Object.assign(coverageCache.current, { coast, coastCoverage: water / coast.pixels.length })
+    }
+    const metrics = {
+      grid, coverage: grid ? coverageCache.current.coverage : null,
+      coast, coastCoverage: coast ? coverageCache.current.coastCoverage : null,
+    }
+    if (renderer === 'experimental' && layer) metrics.capacity = layer.options.count
+    if (!settings.layers.wind.visible) return metrics
+    if (renderer === 'original') return { ...metrics, heads: original?.sourceLoaded ? original.liveCount : null }
+    if (!layer) return metrics
+    const { frameMs } = layer.diagnostics()
+    let heads = 0
+    const state = layer.readState()
+    for (let i = 0; i < state.length; i += 4) heads += Number(state[i + 3] > 0 && state[i + 2] > 0)
+    return { ...metrics, heads, fps: frameMs && Math.round(1000 / frameMs.mean) }
+  }, [props.windGridRef, props.windLayerRef])
+
+  context.current={renderer,preset,palette,theme,settings,...props}
   useEffect(()=>{
-    let originalControl, lastOptions, lastPalette, removed=false
+    let originalControl, lastAppearance, lastUniforms, removed=false
+    let coast
+    loadCoastMask().then(mask=>{ coast=mask }).catch(e=>{ if(!removed)setError(e.message) })
     const timer=setInterval(()=>{
       try{
         const c=context.current, map=props.mapRef.current, grid=props.windGridRef.current, original=props.windLayerRef.current
-        if(!map?.getLayer('phase1-land') || !grid || !original?.sourceLoaded)return
+        if(!map?.getLayer('phase1-land') || !coast || !grid?.unmaskedPixels || !original?.sourceLoaded)return
         if(!layerRef.current){
-          const layer=new HistoryWindLayer({grid,seed,manual})
+          const layer=new HistoryWindLayer({grid,coast,seed,manual})
           map.addLayer(layer,'phase1-land');layerRef.current=layer
+          setReady(true)
           if(manual){originalControl=controlOriginal(original);originalControl.reset()}
         }
         const layer=layerRef.current
-        layer.enabled=c.renderer==='experimental';layer.setGrid(grid)
-        if(lastOptions!==c.options){layer.configure(c.options);lastOptions=c.options}
-        if(lastPalette!==c.palette){window.livingChart.setPalette(c.palette);lastPalette=c.palette}
+        const wind = c.settings.layers.wind
+        const opacity = themeOpacity[c.theme] * wind.opacity
+        const { vesselLight } = c.settings
+        const appearanceKey = `${c.settings.tint}:${opacity}:${vesselLight}`
+        if(lastAppearance !== appearanceKey){
+          const appearance = windAppearance(c.settings.tint, opacity)
+          original.setAppearance(appearance)
+          layer.setAppearance({ ...appearance, vesselLight })
+          lastAppearance = appearanceKey
+        }
+        const enabled = c.renderer === 'experimental' && wind.visible
+        if (layer.enabled !== enabled) {
+          layer.enabled = enabled
+          map.triggerRepaint()
+        }
+        layer.setGrid(grid)
+        const uniforms = ribbonUniforms(c.settings)
+        if (!lastUniforms || Object.keys(uniforms).some(key => uniforms[key] !== lastUniforms[key])) {
+          layer.configure(uniforms)
+          lastUniforms = uniforms
+        }
         const d=layer.diagnostics()
         setStatus(`${c.mode==='forecast'?'NOAA GFS':'Awaiting forecast'} · ${d.options.count} paths · ${d.frameMs ? (1000/d.frameMs.mean).toFixed(0)+' fps' : 'growing trails'}`)
       }catch(e){if(!removed)setError(e.message)}
     },200)
     window.windExperiment={
       layer:()=>layerRef.current,
-      setRenderer, setPreset:name=>{setPreset(name);setOptions({...PRESETS[name]})},setPalette,
-      snapshot:()=>({renderer:context.current.renderer,preset:context.current.preset,palette:context.current.palette,forecast:context.current.frames[context.current.frameIndex],mode:context.current.mode,
+      setRenderer,
+      setPreset: name => {
+        if (!Object.hasOwn(PRESETS, name)) return
+        const { theme, settings } = context.current
+        const treatment = PRESETS[name]
+        applyResources({ ...settings, ...treatment })
+        setTreatments(current => ({ ...current, [theme]: name }))
+        update(treatment, theme)
+      },
+      setPalette,
+      snapshot:()=>({renderer:context.current.renderer,preset:context.current.preset,palette:context.current.palette,theme:context.current.theme,forecast:context.current.frames[context.current.frameIndex],mode:context.current.mode,
         experiment:layerRef.current?.diagnostics(),original:originalControl?.snapshot(),baseline:window.livingChart?.snapshot()}),
       reset:()=>{layerRef.current.reset();originalControl?.reset()},
       advance:seconds=>context.current.renderer==='original'?originalControl.advance(seconds):layerRef.current.advance(seconds),
@@ -75,6 +180,7 @@ export default function CalligraphicPreview(props) {
     }
     return()=>{
       removed=true;clearInterval(timer);originalControl?.restore();delete window.windExperiment
+      props.windLayerRef.current?.setAppearance(null)
       const map=props.mapRef.current
       if(map?.getLayer('phase2-wind'))map.removeLayer('phase2-wind')
       layerRef.current=null
@@ -82,33 +188,50 @@ export default function CalligraphicPreview(props) {
   },[props.mapRef,props.windLayerRef,props.windGridRef])
 
   return <>
-    <IntegratedGeography {...props} controls={false} windVisible={renderer==='original'} />
+    <IntegratedGeography {...props} controls={false} theme={theme} studioLayers={settings.layers} terrain={settings.terrain} regionalRelief={regionalRelief}
+      studioPalette={palette} onStudioPaletteChange={setPalette}
+      windVisible={renderer === 'original' && settings.layers.wind.visible} />
     <style>{`
       .masthead,.conditions-panel,.timeline,.map-caption,.compass{display:none}
+      .vessel-map-light{
+        position:absolute;
+        inset:0;
+        z-index:1;
+        pointer-events:none;
+        background:radial-gradient(circle 65vmin at center, #7dc8e35c, #4787a93d 26%, transparent 67%, #020b1899);
+      }
       .wind-lab{position:absolute;z-index:20;bottom:26px;left:50%;transform:translateX(-50%);color:#c3d4da;background:#0b1822ed;border:1px solid #344750;border-radius:7px;padding:13px 18px;font:12px system-ui;min-width:650px;box-shadow:0 4px 24px #0004}
       .wind-lab h2{font:18px Georgia;margin:0 0 5px;color:#dde5e4;letter-spacing:.04em}
       .wind-lab .controls{display:flex;gap:15px;align-items:center;margin-top:11px}
       .wind-lab label{display:flex;gap:7px;align-items:center;white-space:nowrap}
       .wind-lab select,.wind-lab button{font:inherit;color:#d3dfe1;background:#172a34;border:1px solid #3b525e;padding:6px;border-radius:3px}
       .wind-lab small{font-size:10px;color:#8199a5;letter-spacing:.05em}
-      .wind-lab summary{cursor:pointer;color:#a6bec8}
-      .wind-lab .tuning{display:grid;grid-template-columns:1fr 1fr;gap:11px 22px;padding-top:16px}
-      .wind-lab .tuning label{display:grid;grid-template-columns:110px 120px 40px;gap:8px}
-      .wind-lab input{width:120px;accent-color:#91b6c7}
       .wind-lab .error{color:#ffc6ac;max-width:700px}
       body.capture .wind-lab,body.capture [class*="maplibre"] [class*="control"],body.capture .maplibregl-ctrl{display:none!important}
     `}</style>
+    {renderer === 'experimental' && settings.vesselLight > 0 &&
+      <div className="vessel-map-light" aria-hidden="true" style={{ opacity: settings.vesselLight }} />}
     <aside className="wind-lab">
       <h2>Living Chart · Wind studies</h2>
       <small>{status} · {props.frames[props.frameIndex] ? new Date(props.frames[props.frameIndex]*1000).toISOString().replace('T',' ').slice(0,16)+' UTC' : ''} · GEBCO / GSHHG</small>
       <div className="controls">
         <label>Renderer <select aria-label="Wind renderer" value={renderer} onChange={e=>setRenderer(e.target.value)}><option value="experimental">History ribbons</option><option value="original">Original particles</option></select></label>
-        <label>Treatment <select aria-label="Wind treatment" disabled={renderer==='original'} value={preset} onChange={e=>{setPreset(e.target.value);setOptions({...PRESETS[e.target.value]})}}><option value="fine">Fine currents</option><option value="calligraphic">Calligraphic</option><option value="atmospheric">Atmospheric</option></select></label>
-        <label>Sea <select aria-label="Sea palette" value={palette} onChange={e=>setPalette(e.target.value)}><option value="deep-navy">Deep navy</option><option value="blue-black">Blue-black</option><option value="muted-teal">Muted teal</option></select></label>
+        <label>Treatment <select aria-label="Wind treatment" disabled={renderer==='original'} value={preset} onChange={e=>selectTreatment(e.target.value)}><option value="fine">Fine currents</option><option value="calligraphic">Calligraphic</option><option value="atmospheric">Atmospheric</option></select></label>
+        <label>Theme <select aria-label="Chart theme" value={theme} onChange={e=>setTheme(e.target.value)}>
+          <option value="night">Night · Midnight Current</option>
+          <option value="day">Day · Sculpted Atlas</option>
+        </select></label>
         <button onClick={()=>window.windExperiment.nextForecast()}>Next forecast</button>
       </div>
-      <details style={{marginTop:11}}><summary>Tune strokes</summary><div className="tuning">{Object.entries(ranges).map(([key,[min,max,step]])=><label key={key}>{labels[key]}<input aria-label={labels[key]} type="range" min={min} max={max} step={step} value={options[key]} onChange={e=>setOptions({...options,[key]:Number(e.target.value)})}/><output>{options[key]}</output></label>)}</div></details>
       {error&&<p className="error">{error}</p>}
     </aside>
+    {import.meta.env.DEV && <WindStudio mapRef={props.mapRef} regionalRelief={regionalRelief} setRegionalRelief={setRegionalRelief}
+      theme={theme} settings={settings} renderer={renderer}
+      ready={ready} pending={pending} getDiagnostics={getDiagnostics} setPalette={setPalette}
+      update={update} apply={() => applyResources(settings)}
+      reset={() => {
+        setTreatments(current => ({ ...current, [theme]: 'calligraphic' }))
+        update(defaults(theme, seed))
+      }} />}
   </>
 }

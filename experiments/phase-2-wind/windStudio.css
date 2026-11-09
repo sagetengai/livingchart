@@ -1,0 +1,49 @@
+.wind-studio {
+  position: absolute;
+  z-index: 21;
+  top: 16px;
+  right: 16px;
+  width: min(385px, calc(100% - 32px));
+  color: #e3eef0;
+  background: #0b1822f5;
+  border: 1px solid #405965;
+  border-radius: 7px;
+  box-shadow: 0 4px 24px #0006;
+  font: 12px/1.4 system-ui, sans-serif;
+  color-scheme: dark;
+}
+.wind-studio summary { padding: 10px 12px; cursor: pointer; font-size: 14px; font-weight: 600; }
+.wind-studio summary small { float: right; color: #a8c4ce; letter-spacing: .08em; }
+.studio-body { max-height: calc(100dvh - 74px); overflow: auto; padding: 0 10px 10px; }
+.wind-studio fieldset { min-width: 0; margin: 0 0 7px; padding: 5px 9px 7px; border: 1px solid #344b57; }
+.wind-studio legend { color: #acd3de; padding: 0 5px; font-weight: 600; }
+.wind-studio p { margin: 4px 0; color: #aec5cd; }
+.studio-slider { display: grid; grid-template-columns: 119px minmax(36px, 1fr) 34px; gap: 6px; align-items: center; min-height: 19px; }
+.studio-slider output { text-align: right; font-variant-numeric: tabular-nums; }
+.wind-studio input { accent-color: #98c7d5; margin: 0; min-width: 0; }
+.studio-seed, .studio-layer { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 24px; }
+.studio-seed input[type=number] { width: 110px; }
+.studio-layer .studio-slider { flex: 1; max-width: 235px; grid-template-columns: auto minmax(28px, 1fr) 28px; }
+.studio-apply { margin-left: 8px; color: #aec5cd; }
+.wind-studio button, .wind-studio select, .studio-import {
+  font: inherit;
+  color: inherit;
+  background: #182c37;
+  border: 1px solid #45616f;
+  border-radius: 3px;
+  padding: 3px 6px;
+}
+.wind-studio button:disabled, .wind-studio select:disabled { opacity: .6; }
+.wind-studio dl { margin: 0 0 3px; }
+.wind-studio dl div { display: flex; justify-content: space-between; }
+.wind-studio canvas { display: block; width: 100%; margin-top: 4px; }
+.studio-presets { display: flex; flex-wrap: wrap; gap: 5px; }
+.studio-presets p { flex-basis: 100%; }
+.studio-import { position: relative; cursor: pointer; }
+.studio-import input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.studio-import:focus-within { outline: 2px solid #98c7d5; }
+body.capture .wind-studio { display: none; }
+
+.studio-terrain { margin: 0 0 7px; padding: 0 9px 7px; border: 1px solid #344b57; }
+.studio-terrain summary { padding: 5px 0 0; color: #acd3de; font-size: 12px; }
+.studio-terrain:not([open]) { padding-bottom: 5px; }

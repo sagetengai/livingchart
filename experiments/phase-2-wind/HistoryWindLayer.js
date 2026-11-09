@@ -1,13 +1,46 @@
+import { MercatorCoordinate } from 'maplibre-gl'
 import { buildMapLibreVertexShader, setProjectionUniforms } from '../../src/wind/renderer/mapLibreGlGlobeHelper.js'
 import { fullscreen, simulation, ribbon, ink } from './shaders.js'
+
+const DEFAULT_INK = [0.64, 0.78, 0.83]
 
 export const PRESETS = {
   fine: { count: 330, history: 112, width: 0.95, taper: 0.8, opacity: 0.38, speed: 1700, lifetime: 26, fade: 3 },
   calligraphic: { count: 480, history: 96, width: 1.8, taper: 0.85, opacity: 0.46, speed: 1700, lifetime: 23, fade: 2.5 },
   atmospheric: { count: 560, history: 128, width: 1.5, taper: 0.65, opacity: 0.25, speed: 1400, lifetime: 30, fade: 4 },
 }
+export const MAX_RIBBON_COUNT = 2400
 export const STEP = 1 / 30
 const SAMPLE_EVERY = 3
+
+export async function loadCoastMask() {
+  const base = '/artifacts/cartography/day/'
+  const [manifest, raster] = await Promise.all(['manifest.json', 'land.png'].map(async name => {
+    const response = await fetch(base + name)
+    if (!response.ok) throw new Error(`Coastal mask ${name} HTTP ${response.status}`)
+    return response
+  }))
+  const { projection, image_source_coordinates: corners, outputs } = await manifest.json()
+  const image = await createImageBitmap(await raster.blob())
+  try {
+    const {width, height} = image
+    const layer = outputs.find(output => output.file === 'land.png')
+    if (projection !== 'EPSG:3857' || width !== layer?.width || height !== layer.height) {
+      throw new Error('Coastal mask does not match its georeferencing manifest.')
+    }
+    const canvas = document.createElement('canvas')
+    canvas.width = width; canvas.height = height
+    const ctx = canvas.getContext('2d', {willReadFrequently:true})
+    ctx.drawImage(image, 0, 0)
+    const rgba = ctx.getImageData(0,0,width,height).data
+    const pixels = new Uint8Array(width*height)
+    for (let i=0;i<pixels.length;i++) pixels[i]=rgba[i*4+3]
+    const nw = MercatorCoordinate.fromLngLat(corners[0]), se = MercatorCoordinate.fromLngLat(corners[2])
+    return {width,height,pixels,bounds:[nw.x,nw.y,se.x,se.y]}
+  } finally {
+    image.close()
+  }
+}
 
 function program(gl, vertex, fragment) {
   const p = gl.createProgram()
@@ -26,10 +59,10 @@ function program(gl, vertex, fragment) {
 }
 
 export default class HistoryWindLayer {
-  constructor({ grid, preset = 'calligraphic', seed = 20261105, manual = false } = {}) {
+  constructor({ grid, coast, preset = 'calligraphic', seed = 20261105, manual = false } = {}) {
     this.id = 'phase2-wind'; this.type = 'custom'; this.renderingMode = '2d'
     this.options = { ...PRESETS[preset] }; this.seed = seed >>> 0; this.manual = manual
-    this.grid = grid; this.enabled = true; this.programs = new Map()
+    this.grid = grid; this.coast = coast; this.enabled = true; this.programs = new Map()
     this.stats = { draws: 0, updates: 0, frames: 0, droppedSeconds: 0, uploads: 0 }
     this.frameTimes = []; this.cpuTimes = []; this.gpuTimes = []; this.queries = []
     this.rk2 = true
@@ -42,16 +75,20 @@ export default class HistoryWindLayer {
     this.timerExtension = gl.getExtension('EXT_disjoint_timer_query_webgl2')
     this.vao = gl.createVertexArray()
     this.simulation = program(gl, fullscreen, simulation)
-    this.withState(() => { this.uploadGrid(this.grid); this.allocate() })
+    this.withState(() => {
+      const {width,height,pixels}=this.coast
+      this.coastTexture=this.texture(width,height,pixels,false,gl.RED)
+      this.uploadGrid(this.grid); this.allocate()
+    })
   }
-  texture(width, height, data, floating = true) {
+  texture(width, height, data, floating = true, format = this.gl.RGBA) {
     const gl = this.gl, tex = gl.createTexture()
     gl.bindTexture(gl.TEXTURE_2D, tex)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-    gl.texImage2D(gl.TEXTURE_2D, 0, floating ? gl.RGBA32F : gl.RGBA8, width, height, 0, gl.RGBA, floating ? gl.FLOAT : gl.UNSIGNED_BYTE, data)
+    gl.texImage2D(gl.TEXTURE_2D, 0, floating ? gl.RGBA32F : format === gl.RED ? gl.R8 : gl.RGBA8, width, height, 0, format, floating ? gl.FLOAT : gl.UNSIGNED_BYTE, data)
     return tex
   }
   uploadGrid(grid) {
@@ -60,35 +97,57 @@ export default class HistoryWindLayer {
     if (this.previousTexture && this.previousTexture !== this.windTexture) gl.deleteTexture(this.previousTexture)
     this.previousTexture = this.windTexture
     this.previousGrid = this.grid
-    this.windTexture = this.texture(grid.width, grid.height, new Uint8Array(grid.pixels.buffer, grid.pixels.byteOffset, grid.pixels.byteLength), false)
+    this.windTexture = this.texture(grid.width, grid.height, new Uint8Array(grid.unmaskedPixels.buffer, grid.unmaskedPixels.byteOffset, grid.unmaskedPixels.byteLength), false)
     this.grid = grid; this.blendStart = this.steps || 0; this.stats.uploads++
     if (!this.previousTexture) { this.previousTexture = this.windTexture; this.previousGrid = grid }
   }
   setGrid(grid) { if (grid !== this.grid) this.withState(() => this.uploadGrid(grid)) }
-  allocate() {
-    const gl = this.gl, { count, history } = this.options
-    if (Math.max(count, history) > gl.getParameter(gl.MAX_TEXTURE_SIZE)) throw new Error('Requested particle history exceeds MAX_TEXTURE_SIZE.')
-    for (const tex of this.stateTextures || []) gl.deleteTexture(tex)
+  allocate({ count, history } = this.options) {
+    const gl = this.gl
+    const limit = gl.getParameter(gl.MAX_TEXTURE_SIZE)
+    if (Math.max(count, history) > limit) throw new Error(`This GPU supports up to ${limit} columns in a ribbon texture.`)
+    const textures = [], fbos = []
+    const attach = texture => {
+      const fbo = gl.createFramebuffer()
+      if (!fbo) throw new Error('Could not allocate a ribbon framebuffer.')
+      fbos.push(fbo)
+      gl.bindFramebuffer(gl.FRAMEBUFFER,fbo)
+      gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,texture,0)
+      if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+        throw new Error('Ribbon framebuffer is incomplete.')
+      }
+    }
+    try {
+      for (const height of [1, 1, history]) {
+        const texture = this.texture(count,height,new Float32Array(count*height*4))
+        textures.push(texture)
+        attach(texture)
+      }
+    } catch (error) {
+      for (const texture of textures) gl.deleteTexture(texture)
+      for (const fbo of fbos) gl.deleteFramebuffer(fbo)
+      throw error
+    }
+    gl.deleteFramebuffer(fbos.pop())
+    for (const texture of this.stateTextures || []) gl.deleteTexture(texture)
     for (const fbo of this.stateFbos || []) gl.deleteFramebuffer(fbo)
     if (this.historyTexture) gl.deleteTexture(this.historyTexture)
-    this.stateTextures = [0,1].map(() => this.texture(count,1,new Float32Array(count*4)))
-    this.stateFbos = this.stateTextures.map(tex => {
-      const fbo = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,fbo)
-      gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,tex,0)
-      if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) throw new Error('Particle-state framebuffer is incomplete.')
-      return fbo
-    })
-    this.historyTexture = this.texture(count,history,new Float32Array(count*history*4))
+    this.historyTexture = textures.pop()
+    this.stateTextures = textures
+    this.stateFbos = fbos
     this.current = 0; this.row = history-1; this.steps = 0; this.accumulator = 0; this.lastTime = null
     this.pendingSteps = this.manual ? 0 : 420
     this.blendStart = -90
   }
   configure(changes) {
     const old = this.options
-    this.options = { ...old, ...changes }
-    this.options.count = Math.round(Math.max(50,Math.min(2000,this.options.count)))
-    this.options.history = Math.round(Math.max(16,Math.min(192,this.options.history)))
-    if (old.count !== this.options.count || old.history !== this.options.history) this.reset()
+    const next = { ...old, ...changes }
+    next.count = Math.round(Math.max(50,Math.min(MAX_RIBBON_COUNT,next.count)))
+    next.history = Math.round(Math.max(16,Math.min(192,next.history)))
+    if ((old.count !== next.count || old.history !== next.history) && this.gl) {
+      this.withState(() => this.allocate(next))
+    }
+    this.options = next
     this.map?.triggerRepaint()
   }
   reset() { if (this.gl) this.withState(() => this.allocate()) }
@@ -97,7 +156,10 @@ export default class HistoryWindLayer {
     const b = this.map.getBounds(); let w=b.getWest(), e=b.getEast()
     if (e<w) e+=360
     const dx=Math.min(360,e-w)*0.22, dy=(b.getNorth()-b.getSouth())*0.22
-    return [(w-dx+180)/360,(90-Math.min(85,b.getNorth()+dy))/180,(e+dx+180)/360,(90-Math.max(-85,b.getSouth()-dy))/180]
+    return {
+      visible: [(w+180)/360,(90-b.getNorth())/180,(e+180)/360,(90-b.getSouth())/180],
+      padded: [(w-dx+180)/360,(90-Math.min(85,b.getNorth()+dy))/180,(e+dx+180)/360,(90-Math.max(-85,b.getSouth()-dy))/180],
+    }
   }
   bind(unit, tex) { const gl=this.gl; gl.activeTexture(gl.TEXTURE0+unit); gl.bindTexture(gl.TEXTURE_2D,tex) }
   simulate(viewport) {
@@ -107,7 +169,10 @@ export default class HistoryWindLayer {
     gl.uniform1i(u.u_state,0); gl.uniform1i(u.u_wind,1); gl.uniform1i(u.u_previousWind,2)
     gl.uniform2fv(u.u_rangeU,this.grid.ranges.u); gl.uniform2fv(u.u_rangeV,this.grid.ranges.v)
     gl.uniform2fv(u.u_previousU,this.previousGrid.ranges.u); gl.uniform2fv(u.u_previousV,this.previousGrid.ranges.v)
-    gl.uniform4fv(u.u_viewport,viewport); gl.uniform1f(u.u_dt,STEP); gl.uniform1f(u.u_speed,o.speed)
+    this.bind(4,this.coastTexture)
+    gl.uniform1i(u.u_coast,4); gl.uniform4fv(u.u_coastBounds,this.coast.bounds)
+    gl.uniform4fv(u.u_visible,viewport.visible)
+    gl.uniform4fv(u.u_viewport,viewport.padded); gl.uniform1f(u.u_dt,STEP); gl.uniform1f(u.u_speed,o.speed)
     gl.uniform1f(u.u_lifetime,o.lifetime); gl.uniform1f(u.u_fade,o.fade); gl.uniform1ui(u.u_seed,this.seed)
     gl.uniform1i(u.u_rk2,this.rk2); gl.uniform1f(u.u_blend,Math.min(1,(this.steps-this.blendStart)*STEP/3))
     gl.drawArrays(gl.TRIANGLES,0,3)
@@ -118,6 +183,10 @@ export default class HistoryWindLayer {
       // GPU-to-GPU row copy; the source FBO never has the history texture attached.
       gl.copyTexSubImage2D(gl.TEXTURE_2D,0,0,this.row,0,0,o.count,1)
     }
+  }
+  setAppearance(appearance) {
+    this.appearance = appearance
+    this.map?.triggerRepaint()
   }
   render(gl, args) {
     const now=performance.now()
@@ -146,10 +215,19 @@ export default class HistoryWindLayer {
       const {p,u}=this.programs.get(args.shaderData.variantName), o=this.options
       gl.bindFramebuffer(gl.FRAMEBUFFER,saved.framebuffer); gl.viewport(...saved.viewport)
       gl.useProgram(p); setProjectionUniforms(gl,p,args.defaultProjectionData)
+      // Invert the ground plane projection so clipping follows the actual stroke pixels.
+      const m=args.defaultProjectionData.mainMatrix
+      const inv=new DOMMatrix([m[0],m[1],0,m[3],m[4],m[5],0,m[7],0,0,1,0,m[12],m[13],0,m[15]]).invertSelf()
+      gl.uniformMatrix3fv(u.u_ground,false,[inv.m11,inv.m12,inv.m14,inv.m21,inv.m22,inv.m24,inv.m41,inv.m42,inv.m44])
+      this.bind(4,this.coastTexture)
+      gl.uniform1i(u.u_coast,4); gl.uniform4fv(u.u_coastBounds,this.coast.bounds)
       this.bind(0,this.historyTexture); this.bind(1,this.stateTextures[this.current])
       gl.uniform1i(u.u_history,0); gl.uniform1i(u.u_state,1); gl.uniform1i(u.u_historyLength,o.history); gl.uniform1i(u.u_row,this.row)
       gl.uniform1f(u.u_phase,(this.steps%SAMPLE_EVERY)/SAMPLE_EVERY); gl.uniform1f(u.u_sampleDt,STEP*SAMPLE_EVERY)
-      for (const key of ['width','taper','opacity','lifetime','fade']) gl.uniform1f(u['u_'+key],o[key])
+      for (const key of ['width','taper','lifetime','fade']) gl.uniform1f(u['u_'+key],o[key])
+      gl.uniform1f(u.u_opacity,Math.min(1,o.opacity * (this.appearance?.opacityMultiplier ?? 1)))
+      gl.uniform3fv(u.u_inkColor,this.appearance?.rgb ?? DEFAULT_INK)
+      gl.uniform1f(u.u_vesselLight,this.appearance?.vesselLight ?? 0)
       gl.uniform1f(u.u_centerX,(this.map.getCenter().lng+180)/360)
       gl.uniform1f(u.u_dpr,gl.drawingBufferWidth/this.map.getCanvas().clientWidth)
       gl.uniform2f(u.u_resolution,gl.drawingBufferWidth,gl.drawingBufferHeight); gl.uniform1ui(u.u_seed,this.seed)
@@ -175,7 +253,7 @@ export default class HistoryWindLayer {
       program:gl.getParameter(gl.CURRENT_PROGRAM), vao:gl.getParameter(gl.VERTEX_ARRAY_BINDING), active:gl.getParameter(gl.ACTIVE_TEXTURE),
       colorMask:gl.getParameter(gl.COLOR_WRITEMASK), blend:[gl.BLEND_SRC_RGB,gl.BLEND_DST_RGB,gl.BLEND_SRC_ALPHA,gl.BLEND_DST_ALPHA,gl.BLEND_EQUATION_RGB,gl.BLEND_EQUATION_ALPHA].map(k=>gl.getParameter(k)),
       flags:[gl.DEPTH_TEST,gl.CULL_FACE,gl.SCISSOR_TEST,gl.STENCIL_TEST,gl.RASTERIZER_DISCARD,gl.BLEND].map(k=>[k,gl.isEnabled(k)]),textures:[]}
-    for(let i=0;i<4;i++){gl.activeTexture(gl.TEXTURE0+i);s.textures.push(gl.getParameter(gl.TEXTURE_BINDING_2D))}
+    for(let i=0;i<5;i++){gl.activeTexture(gl.TEXTURE0+i);s.textures.push(gl.getParameter(gl.TEXTURE_BINDING_2D))}
     try{return fn(s)}finally{
       gl.bindFramebuffer(gl.FRAMEBUFFER,s.framebuffer);gl.bindFramebuffer(gl.READ_FRAMEBUFFER,s.readFramebuffer);gl.viewport(...s.viewport)
       gl.useProgram(s.program);gl.bindVertexArray(s.vao);gl.colorMask(...s.colorMask)
@@ -214,7 +292,7 @@ export default class HistoryWindLayer {
   }
   onRemove() {
     const gl=this.gl
-    for(const t of new Set([...this.stateTextures,this.historyTexture,this.windTexture,this.previousTexture])) gl.deleteTexture(t)
+    for(const t of new Set([...this.stateTextures,this.historyTexture,this.windTexture,this.previousTexture,this.coastTexture])) gl.deleteTexture(t)
     for(const f of this.stateFbos)gl.deleteFramebuffer(f)
     for(const p of [this.simulation,...this.programs.values()])gl.deleteProgram(p.p)
     for(const q of this.queries)gl.deleteQuery(q)

@@ -280,7 +280,7 @@ function App() {
     try {
       const waterMask = waterMaskRef.current ?? await fetchWaterMask()
       waterMaskRef.current = waterMask
-      const grid = await fetchWindGrid(url, boundsRef.current, waterMask)
+      const grid = await fetchWindGrid(url, boundsRef.current, waterMask, { retainUnmaskedPixels: PHASE2 })
       if (requestId !== requestIdRef.current) return
       windGridRef.current = grid
       const mapCenter = mapRef.current?.getCenter()
@@ -559,6 +559,7 @@ function App() {
   return (
     <main className="scene">
       {PHASE2 && !USE_FEEDBACK_WIND ? <CalligraphicPreview
+        activeCloudRef={activeCloudRef}
         mapRef={mapRef} windLayerRef={windLayerRef} windGridRef={windGridRef}
         mode={mode} frames={frames} frameIndex={frameIndex} goToFrame={goToFrame}
       /> : windRendererParams.has('geography') && !USE_FEEDBACK_WIND && <IntegratedGeography
