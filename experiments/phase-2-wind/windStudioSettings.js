@@ -27,6 +27,40 @@ export const terrainControls = {
   highlights: ['Highlight strength', 0, 2, 0.05],
 }
 
+export const oceanControls = {
+  depthColor: ['Depth color', 0, 1, 0.01],
+  seafloorRelief: ['Seafloor relief', 0, 1, 0.01],
+  currentTexture: ['Current texture', 0, 1, 0.01],
+  currentMotion: ['Current motion', 0, 1, 0.01],
+}
+
+export const oceanPalettes = { day: 'Day', night: 'Night' }
+
+export function oceanDefaults(theme) {
+  return {
+    depthColor: 0.55,
+    seafloorRelief: 0.40,
+    currentTexture: 0.25,
+    currentMotion: 0.30,
+    palette: theme,
+  }
+}
+
+function parseOcean(ocean, theme) {
+  if (ocean === undefined) return oceanDefaults(theme)
+  const palette = ocean?.palette
+  if (typeof palette !== 'string' || !Object.hasOwn(oceanPalettes, palette)) {
+    throw new Error('Invalid ocean palette.')
+  }
+  const result = { palette }
+  for (const [key, [label, min, max]] of Object.entries(oceanControls)) {
+    const value = ocean[key]
+    if (!Number.isFinite(value) || value < min || value > max) throw new Error(`Invalid ${label.toLowerCase()}.`)
+    result[key] = value
+  }
+  return result
+}
+
 function terrainDefaults(theme) {
   return {
     landColor: theme === 'day' ? null : '#19262e',
@@ -58,6 +92,7 @@ export function defaults(theme, seed) {
   return {
     ...PRESETS.calligraphic,
     terrain: terrainDefaults(theme),
+    ocean: oceanDefaults(theme),
     vesselLight: theme === 'night' ? 0.85 : 0.45,
     seed,
     tint: theme === 'day' ? '#F3F8F5' : '#A9D8EA',
@@ -100,12 +135,12 @@ const ribbonLayer = {
  */
 
 export function serializePreset(theme, settings) {
-  const { tint, count, palette, terrain, vesselLight, layers: { wind, ...mapLayers }, ...ribbon } = settings
+  const { tint, count, palette, terrain, ocean, vesselLight, layers: { wind, ...mapLayers }, ...ribbon } = settings
   /** @type {WindLayerConfig} */
   const windLayer = {
     ...ribbonLayer, ...ribbon, enabled: wind.visible, seedCount: count, color: tint, layerOpacity: wind.opacity,
   }
-  return JSON.stringify({ version: 2, theme, palette, windLayer, mapLayers, terrain, vesselLight }, null, 2)
+  return JSON.stringify({ version: 2, theme, palette, windLayer, mapLayers, terrain, vesselLight, ocean }, null, 2)
 }
 
 export function parsePreset(text, theme) {
@@ -149,6 +184,7 @@ export function parsePreset(text, theme) {
     return [name, { visible, opacity }]
   }))
   settings.terrain = parseTerrain(file.version === 2 ? file.terrain : input.terrain, theme)
+  settings.ocean = parseOcean(file.version === 2 ? file.ocean : input.ocean, theme)
   const vesselLight = file.vesselLight === undefined ? 0 : file.vesselLight
   if (!Number.isFinite(vesselLight) || vesselLight < 0 || vesselLight > 1) {
     throw new Error('Invalid vessel light strength.')

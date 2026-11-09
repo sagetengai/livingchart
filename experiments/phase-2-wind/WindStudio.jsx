@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { layerNames, palettes, parsePreset, resourceKeys, serializePreset, terrainControls, windControls } from './windStudioSettings.js'
+import {
+  layerNames, oceanControls, oceanDefaults, oceanPalettes, palettes, parsePreset, resourceKeys, serializePreset,
+  terrainControls, windControls,
+} from './windStudioSettings.js'
 import ElevationData from './ElevationData.jsx'
 import styles from './windStudio.css?inline'
 
@@ -43,6 +46,8 @@ export default function WindStudio({
   const ribbons = renderer === 'experimental'
   const terrain = settings.terrain
   const updateTerrain = changes => update({ terrain: { ...terrain, ...changes } })
+  const ocean = settings.ocean
+  const updateOcean = changes => update({ ocean: { ...ocean, ...changes } })
 
   useEffect(() => {
     if (!open) return
@@ -115,6 +120,19 @@ export default function WindStudio({
             change={value => updateTerrain({ [key]: value })}
             format={key === 'opacity' ? value => `${Math.round(value * 100)}%` : undefined} />)}
         <p>Ocean shading is baked into the bathymetry palette.</p>
+      </details>
+      <details className="studio-ocean">
+        <summary>Ocean</summary>
+        {Object.entries(oceanControls).map(([key, [label, min, max, step]]) =>
+          <Slider key={key} label={label} min={min} max={max} step={step} value={ocean[key]}
+            change={value => updateOcean({ [key]: value })} format={value => `${Math.round(value * 100)}%`} />)}
+        <label className="studio-seed">Ocean palette
+          <select value={ocean.palette} onChange={event => updateOcean({ palette: event.target.value })}>
+            {Object.entries(oceanPalettes).map(([key, name]) => <option key={key} value={key}>{name}</option>)}
+          </select>
+        </label>
+        <p>Ocean settings are stored with Studio presets. The chart still uses baked bathymetry.</p>
+        <button onClick={() => update({ ocean: oceanDefaults(theme) })}>Reset Ocean Defaults</button>
       </details>
       <ElevationData mapRef={mapRef} regionalRelief={regionalRelief} setRegionalRelief={setRegionalRelief} />
       <fieldset>

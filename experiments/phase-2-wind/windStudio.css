@@ -44,6 +44,6 @@
 .studio-import:focus-within { outline: 2px solid #98c7d5; }
 body.capture .wind-studio { display: none; }
 
-.studio-terrain { margin: 0 0 7px; padding: 0 9px 7px; border: 1px solid #344b57; }
-.studio-terrain summary { padding: 5px 0 0; color: #acd3de; font-size: 12px; }
-.studio-terrain:not([open]) { padding-bottom: 5px; }
+:is(.studio-terrain, .studio-ocean) { margin: 0 0 7px; padding: 0 9px 7px; border: 1px solid #344b57; }
+:is(.studio-terrain, .studio-ocean) summary { padding: 5px 0 0; color: #acd3de; font-size: 12px; }
+:is(.studio-terrain, .studio-ocean):not([open]) { padding-bottom: 5px; }

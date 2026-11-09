@@ -54,6 +54,27 @@ try {
     assert.deepEqual(actual, { ...baseline, identities: [true, true, true, true, true] })
   }
 
+  const ocean = studio.locator('.studio-ocean')
+  const oceanPalette = ocean.getByLabel('Ocean palette')
+  const oceanSliders = ['Depth color', 'Seafloor relief', 'Current texture', 'Current motion']
+  const defaultOceanValues = ['0.55', '0.4', '0.25', '0.3']
+  const customOceanValues = ['0.8', '0.65', '0.5', '0.45']
+  const oceanValues = () => Promise.all(oceanSliders.map(name => ocean.getByLabel(name).inputValue()))
+  const oceanSummary = ocean.locator('summary')
+  assert.equal(await ocean.getByLabel('Depth color').isVisible(), false)
+  await oceanSummary.click()
+  assert.deepEqual(await oceanValues(), defaultOceanValues)
+  assert.equal(await oceanPalette.inputValue(), 'night')
+  for (const [index, name] of oceanSliders.entries()) {
+    await ocean.getByLabel(name).fill(customOceanValues[index])
+  }
+  await oceanPalette.selectOption('day')
+  assert.deepEqual(await oceanValues(), customOceanValues)
+  assert.equal(await theme.inputValue(), 'night')
+  assert.equal(await page.evaluate(() => window.livingChart.snapshot().palette), 'deep-navy')
+  await assertPreserved()
+  await oceanSummary.click()
+
   await tint.fill('#aabbcc')
   await setRange('Trail width', 5)
   await setRange('Trail opacity', 1)
@@ -73,15 +94,26 @@ try {
   await page.waitForFunction(() => window.livingChart.snapshot().theme === 'day' &&
     window.windExperiment.layer().appearance.rgb[0] === 243 / 255)
   assert.equal(await tint.inputValue(), '#f3f8f5')
+  await oceanSummary.click()
+  assert.deepEqual(await oceanValues(), defaultOceanValues)
+  assert.equal(await oceanPalette.inputValue(), 'day')
   await tint.fill('#ff9900')
   await studio.getByRole('button', { name: 'Save Preset' }).click()
   await assertPreserved()
   await theme.selectOption('night')
   assert.equal(await tint.inputValue(), '#aabbcc')
+  assert.deepEqual(await oceanValues(), customOceanValues)
+  await ocean.getByRole('button', { name: 'Reset Ocean Defaults' }).click()
+  assert.deepEqual(await oceanValues(), defaultOceanValues)
+  assert.equal(await oceanPalette.inputValue(), 'night')
+  assert.equal(await tint.inputValue(), '#aabbcc')
   await studio.getByRole('button', { name: 'Reset to Defaults' }).click()
   assert.equal(await tint.inputValue(), '#a9d8ea')
   await studio.getByRole('button', { name: 'Load Preset' }).click()
   assert.equal(await tint.inputValue(), '#aabbcc')
+  assert.deepEqual(await oceanValues(), customOceanValues)
+  assert.equal(await oceanPalette.inputValue(), 'day')
+  await oceanSummary.click()
 
   const download = page.waitForEvent('download')
   await studio.getByRole('button', { name: 'Export JSON' }).click()
@@ -93,6 +125,9 @@ try {
   assert.equal(preset.windLayer.width, 5)
   assert.equal(preset.windLayer.opacity, 1)
   assert.equal(preset.windLayer.color, '#aabbcc')
+  assert.deepEqual(preset.ocean, {
+    depthColor: 0.8, seafloorRelief: 0.65, currentTexture: 0.5, currentMotion: 0.45, palette: 'day',
+  })
   preset.windLayer.seedCount = 2400
   preset.windLayer.seed = 42
   const input = studio.getByLabel('Import JSON')
@@ -119,9 +154,14 @@ try {
 
   await theme.selectOption('night')
   const legacy = { version: 1, theme: 'night', settings: { ...defaults('night', 20261105), count: 75 } }
+  delete legacy.settings.ocean
   await page.evaluate(preset => localStorage.setItem('living-chart.wind-studio.v1.night', JSON.stringify(preset)), legacy)
   await studio.getByRole('button', { name: 'Load Preset' }).click()
   await studio.getByText('Legacy preset count: 75.').waitFor()
+  await oceanSummary.click()
+  assert.deepEqual(await oceanValues(), defaultOceanValues)
+  assert.equal(await oceanPalette.inputValue(), 'night')
+  await oceanSummary.click()
   await apply.click()
   await page.waitForFunction(() => window.windExperiment.layer().options.count === 75)
 
