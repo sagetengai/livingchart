@@ -119,7 +119,6 @@ export default function WindStudio({
           <Slider key={key} label={label} min={min} max={max} step={step} value={terrain[key]}
             change={value => updateTerrain({ [key]: value })}
             format={key === 'opacity' ? value => `${Math.round(value * 100)}%` : undefined} />)}
-        <p>Ocean shading is baked into the bathymetry palette.</p>
       </details>
       <details className="studio-ocean">
         <summary>Ocean</summary>
@@ -131,7 +130,7 @@ export default function WindStudio({
             {Object.entries(oceanPalettes).map(([key, name]) => <option key={key} value={key}>{name}</option>)}
           </select>
         </label>
-        <p>Ocean settings are stored with Studio presets. The chart still uses baked bathymetry.</p>
+        <p>Depth color and seafloor relief blend over the base bathymetry. Current controls are saved with presets.</p>
         <button onClick={() => update({ ocean: oceanDefaults(theme) })}>Reset Ocean Defaults</button>
       </details>
       <ElevationData mapRef={mapRef} regionalRelief={regionalRelief} setRegionalRelief={setRegionalRelief} />

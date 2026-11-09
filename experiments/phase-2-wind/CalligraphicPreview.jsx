@@ -188,7 +188,7 @@ export default function CalligraphicPreview(props) {
   },[props.mapRef,props.windLayerRef,props.windGridRef])
 
   return <>
-    <IntegratedGeography {...props} controls={false} theme={theme} studioLayers={settings.layers} terrain={settings.terrain} regionalRelief={regionalRelief}
+    <IntegratedGeography {...props} controls={false} theme={theme} studioLayers={settings.layers} terrain={settings.terrain} ocean={settings.ocean} regionalRelief={regionalRelief}
       studioPalette={palette} onStudioPaletteChange={setPalette}
       windVisible={renderer === 'original' && settings.layers.wind.visible} />
     <style>{`

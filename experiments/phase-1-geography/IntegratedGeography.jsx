@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { loadLandRelief } from './landRelief.js'
+import { createOceanRenderer } from './oceanPreview.js'
 import { sampleWind } from '../../src/windData.js'
 
 const BASE = '/artifacts/phase-1-geography/'
@@ -12,19 +13,22 @@ const SELECTION = 'studio-elevation-selection'
 
 // Mounted only by the explicitly selected local geography comparison mode.
 export default function IntegratedGeography({ mapRef, windLayerRef, windGridRef, mode, frames, frameIndex, goToFrame, controls = true, windVisible = true, theme = 'night',
-  studioLayers, terrain, regionalRelief, studioPalette, onStudioPaletteChange, activeCloudRef }) {
+  studioLayers, terrain, ocean, regionalRelief, studioPalette, onStudioPaletteChange, activeCloudRef }) {
   const [view, setView] = useState('combined')
   const [localPalette, setLocalPalette] = useState('deep-navy')
   const palette = studioPalette ?? localPalette
   const setPalette = onStudioPaletteChange ?? setLocalPalette
   const [error, setError] = useState('')
+  const [oceanError, setOceanError] = useState('')
   const context = useRef({})
   const counts = useRef({ drawCalls: 0, updates: 0, sourceLoads: 0 })
-  context.current = { view, palette, mode, frames, frameIndex, goToFrame, windVisible, theme, studioLayers, terrain, regionalRelief }
+  context.current = { view, palette, mode, frames, frameIndex, goToFrame, windVisible, theme, studioLayers, terrain, ocean, regionalRelief }
 
   useEffect(() => {
     let disposed = false, metadata, initialized = false, instrumented
     let previousKey = '', imageUrl, relief, previousRegional
+    let oceanKey = '', oceanRevision = 0, oceanApplied = false
+    const renderOcean = context.current.ocean && createOceanRenderer()
     const reliefKeys = new Map()
     if (context.current.terrain) {
       loadLandRelief().then(value => { relief = value }).catch(() => {
@@ -76,6 +80,33 @@ export default function IntegratedGeography({ mapRef, windLayerRef, windGridRef,
       if (imageUrl !== nextImageUrl) {
         map.getSource(GEOGRAPHY).updateImage({ url: nextImageUrl })
         imageUrl = nextImageUrl
+        oceanApplied = false
+      }
+      const ocean = state.ocean
+      const nextOceanKey = renderOcean && state.view !== 'original' && (ocean.depthColor || ocean.seafloorRelief)
+        ? [nextImageUrl, ocean.palette, ocean.depthColor, ocean.seafloorRelief].join('|') : ''
+      if (nextOceanKey !== oceanKey) {
+        oceanKey = nextOceanKey
+        const revision = ++oceanRevision
+        const isCurrent = () => !disposed && revision === oceanRevision
+        const source = map.getSource(GEOGRAPHY)
+        if (oceanKey) {
+          renderOcean(nextImageUrl, state.theme, ocean, isCurrent).then(image => {
+            if (!image || !isCurrent()) return
+            source.updateImage({ image })
+            oceanApplied = true
+            setOceanError('')
+          }).catch(() => {
+            if (!isCurrent()) return
+            if (oceanApplied) source.updateImage({ url: nextImageUrl })
+            oceanApplied = false
+            setOceanError('Ocean plates unavailable. Generate them with tools/cartography/render_ocean.py.')
+          })
+        } else {
+          if (oceanApplied) source.updateImage({ url: nextImageUrl })
+          oceanApplied = false
+          setOceanError('')
+        }
       }
       const studio = state.studioLayers
       const terrain = state.terrain
@@ -237,6 +268,6 @@ export default function IntegratedGeography({ mapRef, windLayerRef, windGridRef,
         <option value="deep-navy">Deep navy</option><option value="blue-black">Blue-black</option><option value="muted-teal">Muted teal</option>
       </select></label>
     </div>}
-    {error && <p className="geography-error">{error}</p>}
+    {(error || oceanError) && <p className="geography-error">{error || oceanError}</p>}
   </>
 }

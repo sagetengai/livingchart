@@ -60,3 +60,14 @@ node experiments/phase-1-geography/integration-controls.mjs "/Users/sage/Desktop
 ```
 
 The audit requires a running dev server and uses existing Playwright; it installs nothing. These local generated assets are ignored and are not packaged for deployment. Work remains uncommitted on `codex/phase-1-geography`. Prior uncommitted work, backup and stash remain preserved. No commit, push, deployment, deployment-setting change or dependency installation was performed for this integration.
+
+## Ocean Studio preview
+
+Generate the Ocean plates after generating the Phase 1 and Sculpted Atlas Day assets. Use the original GEBCO elevation GeoTIFF recorded in the Day manifest.
+
+```sh
+.venv-phase1/bin/python -B tools/cartography/render_ocean.py --elevation /path/to/gebco_elevation.tif
+node experiments/phase-2-wind/ocean-check.mjs /path/to/playwright /tmp/ocean-check
+```
+
+The generator writes water-only depth and relief plates to the ignored `artifacts/cartography/ocean/` directory. The 4K plates use the existing Web Mercator crop and GSHHG land mask. Day keeps the baked shelf, texture, and vignette in its depth color blend. In the Phase 2 preview, the Ocean sliders blend depth color and relief into the existing bathymetry layer. Setting both to zero restores the baked image. The browser check captures both chart themes at 1920×1080.
