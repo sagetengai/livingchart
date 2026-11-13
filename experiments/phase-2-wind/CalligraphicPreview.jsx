@@ -192,7 +192,7 @@ export default function CalligraphicPreview(props) {
 
   return <>
     <IntegratedGeography {...props} controls={false} theme={theme} studioLayers={settings.layers} terrain={settings.terrain} ocean={settings.ocean} regionalRelief={regionalRelief}
-      studioPalette={palette} onStudioPaletteChange={setPalette}
+      studioPalette={palette} onStudioPaletteChange={setPalette} dayPalette={themes.day.palette} dayFrame={settings.dayFrame}
       windVisible={renderer === 'original' && settings.layers.wind.visible} />
     <style>{`
       .masthead,.conditions-panel,.timeline,.map-caption,.compass{display:none}
@@ -230,7 +230,7 @@ export default function CalligraphicPreview(props) {
     </aside>
     {import.meta.env.DEV && <WindStudio mapRef={props.mapRef} regionalRelief={regionalRelief} setRegionalRelief={setRegionalRelief}
       theme={theme} settings={settings} renderer={renderer}
-      ready={ready} pending={pending} getDiagnostics={getDiagnostics} setPalette={setPalette}
+      ready={ready} pending={pending} getDiagnostics={getDiagnostics} setPalette={theme === 'day' ? value => update({ palette: value }) : setPalette}
       update={update} apply={() => applyResources(settings)}
       reset={() => {
         setTreatments(current => ({ ...current, [theme]: 'calligraphic' }))

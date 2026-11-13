@@ -1,3 +1,4 @@
+import { dayPalettes, defaultDayPalette, defaultFrame, parseDayFrame } from '../phase-1-geography/dayChart.js'
 import { MAX_RIBBON_COUNT, PRESETS } from './HistoryWindLayer.js'
 
 export const palettes = {
@@ -125,7 +126,8 @@ export function defaults(theme, seed) {
     vesselLight: theme === 'night' ? 0.85 : 0.45,
     seed,
     tint: theme === 'day' ? '#F3F8F5' : '#A9D8EA',
-    palette: theme === 'day' ? 'sculpted-atlas' : 'deep-navy',
+    palette: theme === 'day' ? defaultDayPalette : 'deep-navy',
+    ...(theme === 'day' && { dayFrame: { ...defaultFrame } }),
     layers: {
       wind: { visible: true, opacity: 1 },
       land: { visible: true, opacity: 1 },
@@ -164,12 +166,13 @@ const ribbonLayer = {
  */
 
 export function serializePreset(theme, settings) {
-  const { tint, count, palette, terrain, ocean, vesselLight, chromaticFlow, layers: { wind, ...mapLayers }, ...ribbon } = settings
+  const { tint, count, palette, terrain, ocean, vesselLight, chromaticFlow, dayFrame, layers: { wind, ...mapLayers }, ...ribbon } = settings
   /** @type {WindLayerConfig} */
   const windLayer = {
     ...ribbonLayer, ...ribbon, enabled: wind.visible, seedCount: count, color: tint, layerOpacity: wind.opacity,
   }
-  return JSON.stringify({ version: 2, theme, palette, windLayer, mapLayers, terrain, vesselLight, ocean, chromaticFlow }, null, 2)
+  return JSON.stringify({ version: 2, theme, palette, windLayer, mapLayers, terrain, vesselLight, ocean, chromaticFlow,
+    dayFrame: theme === 'day' ? dayFrame : undefined }, null, 2)
 }
 
 export function parsePreset(text, theme) {
@@ -200,11 +203,13 @@ export function parsePreset(text, theme) {
     settings[key] = value
   }
   if (typeof input.tint !== 'string' || !/^#[\da-f]{6}$/i.test(input.tint)) throw new Error('Invalid wind tint.')
-  if (theme === 'day' ? input.palette !== 'sculpted-atlas' : !Object.hasOwn(palettes, input.palette)) {
+  const palette = theme === 'day' && input.palette === 'sculpted-atlas' ? defaultDayPalette : input.palette
+  if (!Object.hasOwn(theme === 'day' ? dayPalettes : palettes, palette)) {
     throw new Error('Invalid sea palette.')
   }
   settings.tint = input.tint
-  settings.palette = input.palette
+  settings.palette = palette
+  if (theme === 'day') settings.dayFrame = parseDayFrame(file.version === 2 ? file.dayFrame : input.dayFrame)
   settings.layers = Object.fromEntries(layerNames.map(name => {
     const { visible, opacity } = input.layers?.[name] ?? {}
     if (typeof visible !== 'boolean' || !Number.isFinite(opacity) || opacity < 0 || opacity > 1) {

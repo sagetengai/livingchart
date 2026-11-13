@@ -1,3 +1,4 @@
+import { dayPalettes, frameControls, frameModes } from '../phase-1-geography/dayChart.js'
 import { useEffect, useRef, useState } from 'react'
 import {
   chromaticFlowControls, layerNames, oceanControls, oceanDefaults, oceanPalettes, palettes, parsePreset, resourceKeys, serializePreset,
@@ -44,7 +45,8 @@ export default function WindStudio({
   const [metrics, setMetrics] = useState(null)
   const [message, setMessage] = useState('')
   const ribbons = renderer === 'experimental'
-  const { chromaticFlow } = settings
+  const { chromaticFlow, dayFrame } = settings
+  const updateFrame = changes => update({ dayFrame: { ...dayFrame, ...changes } })
   const terrain = settings.terrain
   const updateTerrain = changes => update({ terrain: { ...terrain, ...changes } })
   const ocean = settings.ocean
@@ -106,13 +108,26 @@ export default function WindStudio({
           <input type="color" value={settings.tint} onChange={event => update({ tint: event.target.value })} />
         </label>
         <label className="studio-seed">{theme === 'day' ? 'Day' : 'Night'} palette
-          <select disabled={theme === 'day'} value={settings.palette} onChange={event => setPalette(event.target.value)}>
-            {theme === 'day' ? <option value="sculpted-atlas">Sculpted Atlas</option> :
-              Object.entries(palettes).map(([key, name]) => <option key={key} value={key}>{name}</option>)}
+          <select value={settings.palette} onChange={event => setPalette(event.target.value)}>
+            {Object.entries(theme === 'day' ? dayPalettes : palettes).map(([key, value]) =>
+              <option key={key} value={key}>{theme === 'day' ? value.name : value}</option>)}
           </select>
         </label>
-        {theme === 'day' && <p>Day uses a single pre-rendered palette.</p>}
       </fieldset>
+      {theme === 'day' && <fieldset>
+        <legend>Chart frame</legend>
+        <label className="studio-seed">Border mode
+          <select value={dayFrame.mode} onChange={event => updateFrame({ mode: event.target.value })}>
+            {Object.entries(frameModes).map(([key, name]) => <option key={key} value={key}>{name}</option>)}
+          </select>
+        </label>
+        {Object.entries(frameControls).map(([key, [label, min, max, step]]) =>
+          <Slider key={key} label={label} min={min} max={max} step={step} value={dayFrame[key]}
+            disabled={dayFrame.mode === 'off'} change={value => updateFrame({ [key]: value })}
+            format={key === 'opacity' ? value => `${Math.round(value * 100)}%` : undefined} />)}
+        <label><input type="checkbox" checked={dayFrame.ticks} disabled={dayFrame.mode === 'off'}
+          onChange={event => updateFrame({ ticks: event.target.checked })} /> Coordinate ticks</label>
+      </fieldset>}
       <details className="studio-terrain">
         <summary>Terrain</summary>
         <label className="studio-seed">Land base color

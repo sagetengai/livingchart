@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import DayFrame from './DayFrame.jsx'
+import { dayRasterPaint, defaultDayPalette } from './dayChart.js'
 import { loadLandRelief } from './landRelief.js'
 import { createOceanRenderer } from './oceanPreview.js'
 import { sampleWind } from '../../src/windData.js'
@@ -13,20 +15,22 @@ const SELECTION = 'studio-elevation-selection'
 
 // Mounted only by the explicitly selected local geography comparison mode.
 export default function IntegratedGeography({ mapRef, windLayerRef, windGridRef, mode, frames, frameIndex, goToFrame, controls = true, windVisible = true, theme = 'night',
-  studioLayers, terrain, ocean, regionalRelief, studioPalette, onStudioPaletteChange, activeCloudRef }) {
+  studioLayers, terrain, ocean, regionalRelief, studioPalette, onStudioPaletteChange, dayPalette, dayFrame, activeCloudRef }) {
   const [view, setView] = useState('combined')
   const [localPalette, setLocalPalette] = useState('deep-navy')
   const palette = studioPalette ?? localPalette
   const setPalette = onStudioPaletteChange ?? setLocalPalette
+  const [bounds, setBounds] = useState(null)
   const [error, setError] = useState('')
   const [oceanError, setOceanError] = useState('')
   const context = useRef({})
   const counts = useRef({ drawCalls: 0, updates: 0, sourceLoads: 0 })
-  context.current = { view, palette, mode, frames, frameIndex, goToFrame, windVisible, theme, studioLayers, terrain, ocean, regionalRelief }
+  context.current = { view, palette, mode, frames, frameIndex, goToFrame, windVisible, theme, studioLayers, terrain, ocean, regionalRelief, dayPalette }
 
   useEffect(() => {
     let disposed = false, metadata, initialized = false, instrumented
     let previousKey = '', imageUrl, relief, previousRegional
+    let rasterPalette
     let oceanKey = '', oceanRevision = 0, oceanApplied = false
     const renderOcean = context.current.ocean && createOceanRenderer()
     const reliefKeys = new Map()
@@ -59,6 +63,7 @@ export default function IntegratedGeography({ mapRef, windLayerRef, windGridRef,
         map.addLayer({ id: LAND, type: 'fill', source: LAND, paint: { 'fill-color': metadata.land, 'fill-opacity': 1, 'fill-antialias': true } })
         imageUrl = nextImageUrl
         initialized = true
+        setBounds(metadata.bounds_wsen)
       }
       if (wind?.gl && wind !== instrumented) {
         instrumented = wind
@@ -114,6 +119,14 @@ export default function IntegratedGeography({ mapRef, windLayerRef, windGridRef,
         if (map.getLayer(id) && map.getPaintProperty(id, property) !== value) {
           map.setPaintProperty(id, property, value)
         }
+      }
+      const nextRasterPalette = day ? state.dayPalette ?? defaultDayPalette : null
+      if (nextRasterPalette !== rasterPalette) {
+        // The neutral Day palette has the same paint values as the ungraded Night raster.
+        for (const [property, value] of Object.entries(dayRasterPaint(nextRasterPalette))) {
+          paint(GEOGRAPHY, property, value)
+        }
+        rasterPalette = nextRasterPalette
       }
       // Keep the fill as the wind insertion anchor even when Day uses its baked land.
       const landOpacity = day && !terrain?.landColor ? 0 : studio?.land.opacity ?? 1
@@ -253,6 +266,8 @@ export default function IntegratedGeography({ mapRef, windLayerRef, windGridRef,
   }, [mapRef, windLayerRef, windGridRef, activeCloudRef])
 
   return <>
+    {theme === 'day' && view !== 'original' && bounds && dayFrame && dayFrame.mode !== 'off' &&
+      <DayFrame map={mapRef.current} bounds={bounds} frame={dayFrame} palette={dayPalette} />}
     <style>{`
       .geography-controls{position:absolute;z-index:10;left:50%;top:22px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;background:#0b1a25ee;color:#d4e1e6;border:1px solid #49616a;padding:10px 14px;border-radius:5px;font:12px system-ui}
       .geography-controls label{display:flex;align-items:center;gap:7px;white-space:nowrap}
