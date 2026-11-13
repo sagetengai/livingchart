@@ -1,0 +1,185 @@
+{
+  "source_inventory_sha256": "1af5285b2e8a736ead48101f5b006077f6b53c2698d20fc83c27cd2cd0aa13d3",
+  "bounds_wsen": [
+    -114.49999999999999,
+    23.838808537882073,
+    -107.99999999999999,
+    27.138533621941505
+  ],
+  "projected_bounds": [
+    -12746081.695829824,
+    2733778.4933173903,
+    -12022505.005673544,
+    3140790.3815302975
+  ],
+  "projection": "EPSG:3857",
+  "image_source_coordinates": [
+    [
+      -114.49999999999999,
+      27.138533621941505
+    ],
+    [
+      -107.99999999999999,
+      27.138533621941505
+    ],
+    [
+      -107.99999999999999,
+      23.838808537882073
+    ],
+    [
+      -114.49999999999999,
+      23.838808537882073
+    ]
+  ],
+  "crop": "Central/southern Sea of Cortez detail; not full-gulf coverage",
+  "source_resolution_arcseconds": 15,
+  "resampling": "bilinear elevation; categorical TID never resampled",
+  "lighting": {
+    "azimuth_degrees": 315,
+    "altitude_degrees": 45,
+    "vertical_exaggeration": 3,
+    "formula": "clamp(0.82 + 0.26 * Lambert, 0.66, 1.08)"
+  },
+  "palettes": {
+    "deep-navy": [
+      "#264653",
+      "#203c4c",
+      "#183347",
+      "#112b40",
+      "#0d2439",
+      "#0a1d30",
+      "#071728",
+      "#061322"
+    ],
+    "blue-black": [
+      "#253943",
+      "#20323c",
+      "#192b35",
+      "#14232e",
+      "#101d28",
+      "#0c1721",
+      "#09121b",
+      "#070e16"
+    ],
+    "muted-teal": [
+      "#38615f",
+      "#2c5356",
+      "#21434c",
+      "#193744",
+      "#122c3c",
+      "#0d2232",
+      "#091a29",
+      "#071522"
+    ]
+  },
+  "depth_stops_meters": [
+    0,
+    50,
+    200,
+    500,
+    1000,
+    2000,
+    3500,
+    5000
+  ],
+  "land": "#1c292d",
+  "coast": "#667d7d",
+  "coastline": {
+    "resolution": "high",
+    "crs": "EPSG:4326",
+    "levels": [
+      {
+        "level": 1,
+        "selected_original_features_validated": 265,
+        "intersecting_features": 265,
+        "all_valid": true
+      },
+      {
+        "level": 2,
+        "selected_original_features_validated": 1,
+        "intersecting_features": 1,
+        "all_valid": true
+      },
+      {
+        "level": 3,
+        "selected_original_features_validated": 0,
+        "intersecting_features": 0,
+        "all_valid": true
+      },
+      {
+        "level": 4,
+        "selected_original_features_validated": 0,
+        "intersecting_features": 0,
+        "all_valid": true
+      }
+    ],
+    "final_valid": true,
+    "vertex_count": 5335
+  },
+  "shoreline_disagreement": {
+    "elevation_land_but_gshhg_water_pixels": 19171,
+    "elevation_water_but_gshhg_land_pixels": 44331,
+    "total_pixels": 8294400,
+    "note": "Independent shoreline definitions; no source data was changed. GSHHG controls visual land."
+  },
+  "versions": {
+    "python": "3.13.2",
+    "rasterio": "1.5.2",
+    "gdal": "3.12.2",
+    "numpy": "2.5.4",
+    "Pillow": "12.2.0",
+    "pyproj": "3.8.0",
+    "shapely": "2.2.0",
+    "pyshp": "3.1.6"
+  },
+  "outputs": [
+    {
+      "file": "deep-navy-3840x2160.png",
+      "bytes": 2158745,
+      "sha256": "e271e659831ef3bfc517af22bef846d8ad686c5bcbe3b43c25a904036e86214d",
+      "width": 3840,
+      "height": 2160,
+      "decoded_rgba_mib": 31.64
+    },
+    {
+      "file": "deep-navy-1920x1080.png",
+      "bytes": 913731,
+      "sha256": "ebb93b1975fd5096c8c922752563c169ab46f464d1b8909b616e85e9a0f6ebab",
+      "width": 1920,
+      "height": 1080,
+      "decoded_rgba_mib": 7.91
+    },
+    {
+      "file": "blue-black-3840x2160.png",
+      "bytes": 1836857,
+      "sha256": "b31633c60cc0c6a8e9e8714c371b9377d3b1bf4b7a663466aa43d7d36682accc",
+      "width": 3840,
+      "height": 2160,
+      "decoded_rgba_mib": 31.64
+    },
+    {
+      "file": "blue-black-1920x1080.png",
+      "bytes": 793705,
+      "sha256": "4db2e39dcf5d7982028171b8d9dc189bb0e75eabbf10724a294b56f1103e72d2",
+      "width": 1920,
+      "height": 1080,
+      "decoded_rgba_mib": 7.91
+    },
+    {
+      "file": "muted-teal-3840x2160.png",
+      "bytes": 2408184,
+      "sha256": "40b88be7d088b5f05e7f3c3d4629d493947d474938a2d593860ab13001d78fbe",
+      "width": 3840,
+      "height": 2160,
+      "decoded_rgba_mib": 31.64
+    },
+    {
+      "file": "muted-teal-1920x1080.png",
+      "bytes": 991944,
+      "sha256": "d64ef1d7dd9819ee2b01d674bc87bc544720837a116891e7a01cc42cf2563df0",
+      "width": 1920,
+      "height": 1080,
+      "decoded_rgba_mib": 7.91
+    }
+  ]
+}

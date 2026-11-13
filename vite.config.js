@@ -4,6 +4,9 @@ import react from '@vitejs/plugin-react'
 const elevationPrefix = '/__elevation'
 
 export default defineConfig({
+  define: {
+    __VERCEL_PREVIEW__: JSON.stringify(process.env.VERCEL_ENV === 'preview'),
+  },
   plugins: [react(), {
     name: 'local-elevation',
     apply: 'serve',

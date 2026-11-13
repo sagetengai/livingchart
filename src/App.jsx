@@ -39,7 +39,7 @@ const WIND_COLORS = [
 const GFS_BOUNDS = [-180, 90, 180, -90]
 const GEBCO_WMS = 'https://wms.gebco.net/mapserv?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=GEBCO_LATEST&STYLES=&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&FORMAT=image/png'
 const windRendererParams = new URLSearchParams(window.location.search)
-const PHASE2 = import.meta.env.DEV && windRendererParams.has('phase2')
+const PHASE2 = (import.meta.env.DEV || __VERCEL_PREVIEW__) && windRendererParams.has('phase2')
 const USE_FEEDBACK_WIND = windRendererParams.get('windRenderer') === 'feedback'
 
 function feedbackWindOption(name, fallback) {

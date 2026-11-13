@@ -228,13 +228,13 @@ export default function CalligraphicPreview(props) {
       </div>
       {error&&<p className="error">{error}</p>}
     </aside>
-    {import.meta.env.DEV && <WindStudio mapRef={props.mapRef} regionalRelief={regionalRelief} setRegionalRelief={setRegionalRelief}
+    <WindStudio mapRef={props.mapRef} regionalRelief={regionalRelief} setRegionalRelief={setRegionalRelief}
       theme={theme} settings={settings} renderer={renderer}
       ready={ready} pending={pending} getDiagnostics={getDiagnostics} setPalette={theme === 'day' ? value => update({ palette: value }) : setPalette}
       update={update} apply={() => applyResources(settings)}
       reset={() => {
         setTreatments(current => ({ ...current, [theme]: 'calligraphic' }))
         update(defaults(theme, seed))
-      }} />}
+      }} />
   </>
 }

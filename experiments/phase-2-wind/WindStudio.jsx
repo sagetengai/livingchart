@@ -67,7 +67,7 @@ export default function WindStudio({
   }
 
   return <details className="wind-studio" onToggle={event => setOpen(event.currentTarget.open)}>
-    <summary>Wind Studio <small>LOCAL DEV</small></summary>
+    <summary>Wind Studio <small>{import.meta.env.DEV ? 'LOCAL DEV' : 'PREVIEW'}</small></summary>
     <style>{styles}</style>
     {open && <div className="studio-body">
       <fieldset>
@@ -157,7 +157,7 @@ export default function WindStudio({
         <p>Depth color, seafloor relief, and static current texture blend over the base bathymetry. Current motion is saved with presets.</p>
         <button onClick={() => update({ ocean: oceanDefaults(theme) })}>Reset Ocean Defaults</button>
       </details>
-      <ElevationData mapRef={mapRef} regionalRelief={regionalRelief} setRegionalRelief={setRegionalRelief} />
+      {import.meta.env.DEV && <ElevationData mapRef={mapRef} regionalRelief={regionalRelief} setRegionalRelief={setRegionalRelief} />}
       <fieldset>
         <legend>Layers</legend>
         {layerNames.map(name => {

@@ -1,0 +1,287 @@
+{
+  "projection": "EPSG:3857",
+  "projected_bounds": [
+    -12746081.695829824,
+    2733778.4933173903,
+    -12022505.005673544,
+    3140790.3815302975
+  ],
+  "bounds_wsen": [
+    -114.49999999999999,
+    23.838808537882073,
+    -107.99999999999999,
+    27.138533621941505
+  ],
+  "affine": [
+    188.43142972819768,
+    0.0,
+    -12746081.695829824,
+    0.0,
+    -188.43142972819774,
+    3140790.3815302975
+  ],
+  "image_source_coordinates": [
+    [
+      -114.49999999999999,
+      27.138533621941505
+    ],
+    [
+      -107.99999999999999,
+      27.138533621941505
+    ],
+    [
+      -107.99999999999999,
+      23.838808537882073
+    ],
+    [
+      -114.49999999999999,
+      23.838808537882073
+    ]
+  ],
+  "layer_order_bottom_to_top": [
+    "ocean",
+    "shelf",
+    "land",
+    "texture",
+    "vignette"
+  ],
+  "sources": {
+    "elevation": {
+      "file": "gebco_2026_n30.0_s22.0_w-115.0_e-108.0_geotiff.tif",
+      "sha256": "d2356f54e1cd77dab8b90a493913c2a298df5846ef823833d80fa908be40aad9",
+      "resolution_degrees": [
+        0.004166666666666669,
+        0.004166666666666667
+      ]
+    },
+    "coastline": {
+      "file": "gshhg-shp-2.3.7.zip",
+      "sha256": "8dbbe7e071e77e9e75f2d639239099ebca8d5c16d6a07df8169729d49f15cf41",
+      "resolution": "high",
+      "crs": "EPSG:4326",
+      "levels": [
+        {
+          "level": 1,
+          "selected_original_features_validated": 265,
+          "intersecting_features": 265,
+          "all_valid": true
+        },
+        {
+          "level": 2,
+          "selected_original_features_validated": 1,
+          "intersecting_features": 1,
+          "all_valid": true
+        },
+        {
+          "level": 3,
+          "selected_original_features_validated": 0,
+          "intersecting_features": 0,
+          "all_valid": true
+        },
+        {
+          "level": 4,
+          "selected_original_features_validated": 0,
+          "intersecting_features": 0,
+          "all_valid": true
+        }
+      ],
+      "final_valid": true,
+      "vertex_count": 5335
+    }
+  },
+  "style": {
+    "land": {
+      "ramp": [
+        [
+          0,
+          "#9eae89"
+        ],
+        [
+          120,
+          "#b5be93"
+        ],
+        [
+          450,
+          "#e5d59f"
+        ],
+        [
+          850,
+          "#dfbd8e"
+        ],
+        [
+          1400,
+          "#c88b73"
+        ],
+        [
+          2000,
+          "#ba7974"
+        ],
+        [
+          2800,
+          "#c89a9a"
+        ]
+      ],
+      "hillshade": {
+        "exaggeration": 1.65,
+        "blend": 0.34,
+        "lights": [
+          {
+            "azimuth": 315,
+            "altitude": 48,
+            "weight": 0.58
+          },
+          {
+            "azimuth": 260,
+            "altitude": 55,
+            "weight": 0.27
+          },
+          {
+            "azimuth": 30,
+            "altitude": 60,
+            "weight": 0.15
+          }
+        ]
+      }
+    },
+    "ocean": {
+      "ramp": [
+        [
+          0,
+          "#79c3bc"
+        ],
+        [
+          35,
+          "#89cbca"
+        ],
+        [
+          105,
+          "#a2cbd6"
+        ],
+        [
+          200,
+          "#8fbacb"
+        ],
+        [
+          550,
+          "#649ab4"
+        ],
+        [
+          1250,
+          "#467997"
+        ],
+        [
+          2500,
+          "#365b76"
+        ],
+        [
+          4600,
+          "#344654"
+        ]
+      ],
+      "hillshade": {
+        "exaggeration": 3.3,
+        "blend": 0.62,
+        "lights": [
+          {
+            "azimuth": 315,
+            "altitude": 43,
+            "weight": 0.8
+          },
+          {
+            "azimuth": 250,
+            "altitude": 54,
+            "weight": 0.2
+          }
+        ]
+      }
+    },
+    "shelf": {
+      "color": "#c9e9e1",
+      "depth_ramp": [
+        [
+          0,
+          0.04
+        ],
+        [
+          35,
+          0.16
+        ],
+        [
+          110,
+          0.2
+        ],
+        [
+          210,
+          0.07
+        ],
+        [
+          320,
+          0.0
+        ]
+      ]
+    },
+    "texture": {
+      "seed": 42,
+      "strength": 0.025,
+      "scale_pixels": 3
+    },
+    "vignette": {
+      "color": "#a77d53",
+      "start_radius": 0.46,
+      "end_radius": 1.4,
+      "opacity": 0.19
+    }
+  },
+  "shoreline_disagreement_pixels": 63502,
+  "outputs": [
+    {
+      "file": "ocean.png",
+      "bytes": 5128627,
+      "sha256": "8995b25c48738169744bc3ffca17fb00612eb3292d84882d43fa36925c794dde",
+      "width": 3840,
+      "height": 2160,
+      "decoded_rgba_mib": 31.64
+    },
+    {
+      "file": "shelf.png",
+      "bytes": 634963,
+      "sha256": "0b1464cf391ee8c7dbc80776d47c449f7b987c01f45c972ddf09918e8e3bdbcf",
+      "width": 3840,
+      "height": 2160,
+      "decoded_rgba_mib": 31.64
+    },
+    {
+      "file": "land.png",
+      "bytes": 2454612,
+      "sha256": "b232b97f5874ffede461e4bcbd3a12832a8ba995d548247ee4576e8b5b388923",
+      "width": 3840,
+      "height": 2160,
+      "decoded_rgba_mib": 31.64
+    },
+    {
+      "file": "texture.png",
+      "bytes": 4969231,
+      "sha256": "dbe964aa42f215923fe3254b3f1c906f74d0299a8c02f923b8460ae7ca27e176",
+      "width": 3840,
+      "height": 2160,
+      "decoded_rgba_mib": 31.64
+    },
+    {
+      "file": "vignette.png",
+      "bytes": 224194,
+      "sha256": "a3de38e61eb5ad2f192e43c537d4a0566e4819bc9d4ad7194f5f0083052bdc8c",
+      "width": 3840,
+      "height": 2160,
+      "decoded_rgba_mib": 31.64
+    },
+    {
+      "file": "day.png",
+      "bytes": 8205739,
+      "sha256": "4204c57e9626874fc33a68ef134f26ba4e87f90e9dbf7eb51a711a9cb531751b",
+      "width": 3840,
+      "height": 2160,
+      "decoded_rgba_mib": 31.64
+    }
+  ],
+  "render_seconds": 6.98
+}
