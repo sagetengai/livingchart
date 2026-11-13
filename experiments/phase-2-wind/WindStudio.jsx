@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  layerNames, oceanControls, oceanDefaults, oceanPalettes, palettes, parsePreset, resourceKeys, serializePreset,
+  chromaticFlowControls, layerNames, oceanControls, oceanDefaults, oceanPalettes, palettes, parsePreset, resourceKeys, serializePreset,
   terrainControls, windControls,
 } from './windStudioSettings.js'
 import ElevationData from './ElevationData.jsx'
@@ -44,6 +44,7 @@ export default function WindStudio({
   const [metrics, setMetrics] = useState(null)
   const [message, setMessage] = useState('')
   const ribbons = renderer === 'experimental'
+  const { chromaticFlow } = settings
   const terrain = settings.terrain
   const updateTerrain = changes => update({ terrain: { ...terrain, ...changes } })
   const ocean = settings.ocean
@@ -91,6 +92,14 @@ export default function WindStudio({
         <small className="studio-apply">* Restarts ribbons when applied.</small>
         {pending && <p role="status">Count, history or seed changes are pending.</p>}
       </fieldset>
+      {ribbons && chromaticFlow?.active && <fieldset>
+        <legend>Chromatic Flow</legend>
+        <p>Experimental controls saved with presets. Rendering effects are pending.</p>
+        {Object.entries(chromaticFlowControls).map(([key, [label, min, max, step]]) =>
+          <Slider key={key} label={label} min={min} max={max} step={step} value={chromaticFlow[key]}
+            format={value => `${Math.round(value * 100)}%`}
+            change={value => update({ chromaticFlow: { ...chromaticFlow, [key]: value } })} />)}
+      </fieldset>}
       <fieldset>
         <legend>Color</legend>
         <label className="studio-seed">Wind tint

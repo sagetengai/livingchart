@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import IntegratedGeography from '../phase-1-geography/IntegratedGeography.jsx'
 import HistoryWindLayer, { PRESETS, loadCoastMask } from './HistoryWindLayer.js'
 import WindStudio from './WindStudio.jsx'
-import { defaults, palettes, resourceKeys } from './windStudioSettings.js'
+import { chromaticFlowDefaults, defaults, palettes, resourceKeys } from './windStudioSettings.js'
 
 const params = new URLSearchParams(location.search)
 const seed = Number(params.get('seed') || 20261105) >>> 0
@@ -59,8 +59,8 @@ export default function CalligraphicPreview(props) {
   const [status,setStatus]=useState('Loading GFS and geography…'), [error,setError]=useState('')
   const [ready, setReady] = useState(false)
   const layerRef=useRef(null), context=useRef({}), coverageCache=useRef({})
-  const preset = treatments[theme]
   const settings = themes[theme]
+  const preset = settings.chromaticFlow?.active ? 'chromatic-flow' : treatments[theme]
   const palette = themes.night.palette
   const pending = resourceKeys.some(key => settings[key] !== applied[key])
 
@@ -70,10 +70,17 @@ export default function CalligraphicPreview(props) {
   const setPalette = value => {
     if (Object.hasOwn(palettes, value)) update({ palette: value }, 'night')
   }
-  const selectTreatment = name => {
+  const selectTreatment = (name, target, currentSettings, apply = false) => {
+    const { chromaticFlow } = currentSettings
+    if (name === 'chromatic-flow') {
+      update({ chromaticFlow: { ...chromaticFlowDefaults, ...chromaticFlow, active: true } }, target)
+      return
+    }
     if (!Object.hasOwn(PRESETS, name)) return
-    setTreatments(current => ({ ...current, [theme]: name }))
-    update(PRESETS[name])
+    const treatment = PRESETS[name]
+    if (apply) applyResources({ ...currentSettings, ...treatment })
+    setTreatments(current => ({ ...current, [target]: name }))
+    update({ ...treatment, chromaticFlow: chromaticFlow && { ...chromaticFlow, active: false } }, target)
   }
   const applyResources = ({ count, history, seed }) => {
     const layer = layerRef.current
@@ -164,12 +171,8 @@ export default function CalligraphicPreview(props) {
       layer:()=>layerRef.current,
       setRenderer,
       setPreset: name => {
-        if (!Object.hasOwn(PRESETS, name)) return
         const { theme, settings } = context.current
-        const treatment = PRESETS[name]
-        applyResources({ ...settings, ...treatment })
-        setTreatments(current => ({ ...current, [theme]: name }))
-        update(treatment, theme)
+        selectTreatment(name, theme, settings, true)
       },
       setPalette,
       snapshot:()=>({renderer:context.current.renderer,preset:context.current.preset,palette:context.current.palette,theme:context.current.theme,forecast:context.current.frames[context.current.frameIndex],mode:context.current.mode,
@@ -216,7 +219,7 @@ export default function CalligraphicPreview(props) {
       <small>{status} · {props.frames[props.frameIndex] ? new Date(props.frames[props.frameIndex]*1000).toISOString().replace('T',' ').slice(0,16)+' UTC' : ''} · GEBCO / GSHHG</small>
       <div className="controls">
         <label>Renderer <select aria-label="Wind renderer" value={renderer} onChange={e=>setRenderer(e.target.value)}><option value="experimental">History ribbons</option><option value="original">Original particles</option></select></label>
-        <label>Treatment <select aria-label="Wind treatment" disabled={renderer==='original'} value={preset} onChange={e=>selectTreatment(e.target.value)}><option value="fine">Fine currents</option><option value="calligraphic">Calligraphic</option><option value="atmospheric">Atmospheric</option></select></label>
+        <label>Treatment <select aria-label="Wind treatment" disabled={renderer==='original'} value={preset} onChange={e=>selectTreatment(e.target.value, theme, settings)}><option value="fine">Fine currents</option><option value="calligraphic">Calligraphic</option><option value="atmospheric">Atmospheric</option><option value="chromatic-flow">Chromatic Flow</option></select></label>
         <label>Theme <select aria-label="Chart theme" value={theme} onChange={e=>setTheme(e.target.value)}>
           <option value="night">Night · Midnight Current</option>
           <option value="day">Day · Sculpted Atlas</option>

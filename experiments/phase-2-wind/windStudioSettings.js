@@ -34,6 +34,34 @@ export const oceanControls = {
   currentMotion: ['Current motion', 0, 1, 0.01],
 }
 
+export const chromaticFlowControls = {
+  filamentDensity: ['Filament density', 0, 1, 0.01],
+  ribbonProminence: ['Ribbon prominence', 0, 1, 0.01],
+  speedColorIntensity: ['Speed color intensity', 0, 1, 0.01],
+  gradientOpacity: ['Gradient opacity', 0, 1, 0.01],
+  calmAreaVisibility: ['Calm-area visibility', 0, 1, 0.01],
+}
+
+export const chromaticFlowDefaults = {
+  filamentDensity: 0.70,
+  ribbonProminence: 0.35,
+  speedColorIntensity: 0.65,
+  gradientOpacity: 0.12,
+  calmAreaVisibility: 0.25,
+}
+
+function parseChromaticFlow(input) {
+  if (input === undefined) return undefined
+  if (typeof input?.active !== 'boolean') throw new Error('Invalid Chromatic Flow selection.')
+  const result = { active: input.active }
+  for (const [key, [label, min, max]] of Object.entries(chromaticFlowControls)) {
+    const value = input[key]
+    if (!Number.isFinite(value) || value < min || value > max) throw new Error(`Invalid ${label.toLowerCase()}.`)
+    result[key] = value
+  }
+  return result
+}
+
 export const oceanPalettes = { day: 'Day', night: 'Night' }
 
 export function oceanDefaults(theme) {
@@ -91,6 +119,7 @@ function parseTerrain(terrain, theme) {
 export function defaults(theme, seed) {
   return {
     ...PRESETS.calligraphic,
+    chromaticFlow: undefined,
     terrain: terrainDefaults(theme),
     ocean: oceanDefaults(theme),
     vesselLight: theme === 'night' ? 0.85 : 0.45,
@@ -135,12 +164,12 @@ const ribbonLayer = {
  */
 
 export function serializePreset(theme, settings) {
-  const { tint, count, palette, terrain, ocean, vesselLight, layers: { wind, ...mapLayers }, ...ribbon } = settings
+  const { tint, count, palette, terrain, ocean, vesselLight, chromaticFlow, layers: { wind, ...mapLayers }, ...ribbon } = settings
   /** @type {WindLayerConfig} */
   const windLayer = {
     ...ribbonLayer, ...ribbon, enabled: wind.visible, seedCount: count, color: tint, layerOpacity: wind.opacity,
   }
-  return JSON.stringify({ version: 2, theme, palette, windLayer, mapLayers, terrain, vesselLight, ocean }, null, 2)
+  return JSON.stringify({ version: 2, theme, palette, windLayer, mapLayers, terrain, vesselLight, ocean, chromaticFlow }, null, 2)
 }
 
 export function parsePreset(text, theme) {
@@ -190,5 +219,6 @@ export function parsePreset(text, theme) {
     throw new Error('Invalid vessel light strength.')
   }
   settings.vesselLight = vesselLight
+  settings.chromaticFlow = parseChromaticFlow(file.version === 2 ? file.chromaticFlow : input.chromaticFlow)
   return settings
 }
