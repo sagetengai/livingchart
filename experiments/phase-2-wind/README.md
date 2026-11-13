@@ -84,6 +84,16 @@ Chrome with ANGLE Metal on Apple M3, 1440 × 1000 drawing buffer at DPR 1, Night
 
 Frame cadence stayed near 60 FPS in this profile while history memory scaled linearly. The sample does not measure GPU headroom beyond that cadence. The browser check also applies the 2,400-slot maximum.
 
+## Future compositor
+
+Prefer one MapLibre custom layer with a shared WebGL compositor. The current renderer already draws premultiplied ribbons into MapLibre's active framebuffer and preserves GL state across the custom draw. A future compositor can render the wind group into its own transparent framebuffer and resolve it at the existing wind draw position. Keep forecast and coastal textures, shader programs, and projection setup shared. Style-only layers can draw from the same head and history textures. Layers with independent seeds, speeds, or lifetimes need separate simulation state and histories within that shared layer.
+
+- **Add and screen** can use premultiplied blend factors for RGB inside the wind group, with an explicit alpha policy. Screen against the basemap would need the map destination color, so define that behavior separately from blending within wind.
+- **Bloom** can downsample the wind target, blur the bright contribution in two passes, and composite it with the clean strokes. Group-level bloom is also the approach shown in the ArcGIS example. [FlowRenderer sample](https://developers.arcgis.com/javascript/latest/sample-code/layers-imagery-afrenderer-blending/)
+- **Long exposure** can ping-pong between two accumulation targets and apply time-based decay. Start by clearing them on camera, projection, or size changes to avoid carrying screen-space trails into a new view.
+
+This keeps one map integration and avoids duplicating the forecast, mask, and effect targets for every style. Nelson's layered wind study provides the visual reference for the group. [Silky wind map](https://www.esri.com/arcgis-blog/products/arcgis-online/mapping/make-this-silky-wind-map-in-arcgis-online)
+
 ## How the strokes work
 
 A MapLibre custom layer draws between the Phase 1 bathymetry and coastline mask. It reuses the application's decoded global NOAA GFS vector grid. A fixed 30 Hz GPU simulation interpolates valid grid samples, follows the vectors with midpoint integration, and blends consecutive forecasts over three seconds. The speed setting accelerates visual time. Particle positions remain in geographic coordinates, with unwrapped longitude stored through a crossing.
