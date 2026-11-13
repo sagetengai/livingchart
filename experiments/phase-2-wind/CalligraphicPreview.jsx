@@ -134,6 +134,7 @@ export default function CalligraphicPreview(props) {
     const timer=setInterval(()=>{
       try{
         const c=context.current, map=props.mapRef.current, grid=props.windGridRef.current, original=props.windLayerRef.current
+        if (!grid?.unmaskedPixels) original?.setCoastalForecast?.(null, null)
         if(!map?.getLayer('phase1-land') || !coast || !grid?.unmaskedPixels || !original?.sourceLoaded)return
         if(!layerRef.current){
           const layer=new HistoryWindLayer({grid,coast,seed,manual})
@@ -152,6 +153,7 @@ export default function CalligraphicPreview(props) {
           layer.setAppearance({ ...appearance, vesselLight })
           lastAppearance = appearanceKey
         }
+        if (c.renderer === 'original') original.setCoastalForecast?.(grid, coast)
         const enabled = c.renderer === 'experimental' && wind.visible
         if (layer.enabled !== enabled) {
           layer.enabled = enabled
@@ -184,6 +186,7 @@ export default function CalligraphicPreview(props) {
     return()=>{
       removed=true;clearInterval(timer);originalControl?.restore();delete window.windExperiment
       props.windLayerRef.current?.setAppearance(null)
+      props.windLayerRef.current?.setCoastalForecast?.(null, null)
       const map=props.mapRef.current
       if(map?.getLayer('phase2-wind'))map.removeLayer('phase2-wind')
       layerRef.current=null

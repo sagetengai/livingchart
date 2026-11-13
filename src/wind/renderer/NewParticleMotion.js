@@ -33,8 +33,64 @@ const velocityDecodeGlsl = `
     }
 `;
 
+// Studio's regional coastal treatment uses the same raw field and land alpha as History Ribbons.
+const coastalVelocityGlsl = `
+    uniform bool u_coastal_forecast;
+    uniform sampler2D u_raw_wind;
+    uniform sampler2D u_coast_mask;
+    uniform highp vec4 u_coast_bounds;
+    uniform vec2 u_raw_range_u, u_raw_range_v;
+
+    highp vec2 coastUV(highp vec2 mercator) {
+        return (mercator - u_coast_bounds.xy) / (u_coast_bounds.zw - u_coast_bounds.xy);
+    }
+
+    bool inCoastMask(highp vec2 uv) {
+        return all(greaterThanEqual(uv, vec2(0.0))) && all(lessThan(uv, vec2(1.0)));
+    }
+
+    highp vec2 geographicCoastUV(highp vec2 position) {
+        highp float lat = radians(90.0 - position.y * 180.0);
+        return coastUV(vec2(position.x, 0.5 - log(tan(0.78539816339 + lat * 0.5)) / 6.28318530718));
+    }
+
+    bool onCoastalLand(highp vec2 position) {
+        highp vec2 uv = geographicCoastUV(position);
+        return inCoastMask(uv) && texture(u_coast_mask, uv).r >= 0.5;
+    }
+
+    vec2 sampleCoastalWind(highp vec2 position, highp vec2 uv, out bool valid) {
+        valid = false;
+        if (texture(u_coast_mask, uv).r >= 0.5) return vec2(0.0);
+
+        ivec2 size = textureSize(u_raw_wind, 0);
+        highp vec2 grid = position * vec2(size) - 0.5;
+        ivec2 base = ivec2(floor(grid));
+        highp vec2 fraction = fract(grid);
+        vec2 components = vec2(0.0);
+        float total = 0.0;
+        for (int y = 0; y < 2; y++) for (int x = 0; x < 2; x++) {
+            vec4 encoded = texelFetch(u_raw_wind, clamp(base + ivec2(x, y), ivec2(0), size - 1), 0);
+            if (encoded.b < 0.5) continue;
+            float weight = (x == 0 ? 1.0 - fraction.x : fraction.x) *
+                (y == 0 ? 1.0 - fraction.y : fraction.y);
+            components += encoded.rg * weight;
+            total += weight;
+        }
+        if (total < 0.9) return vec2(0.0);
+        components /= total;
+        valid = true;
+        return vec2(mix(u_raw_range_u.x, u_raw_range_u.y, components.r),
+                    mix(u_raw_range_v.x, u_raw_range_v.y, components.g));
+    }
+`;
+
 const temporalVelocityGlsl = `
-    vec2 sampleVelocity(vec2 position, out bool valid) {
+    vec2 sampleVelocity(highp vec2 position, out bool valid) {
+        if (u_coastal_forecast) {
+            highp vec2 uv = geographicCoastUV(position);
+            if (inCoastMask(uv)) return sampleCoastalWind(position, uv, valid);
+        }
         vec4 currentData = texture(u_velocity_texture, position);
         bool currentValid = !velocityIsInvalid(currentData);
         vec2 currentWind = decodeVelocity(currentData);
@@ -58,14 +114,14 @@ const temporalVelocityGlsl = `
     }
 `;
 
-const vertexShader =
+const vertexShaderSource =
     `#version 300 es
     precision mediump float;
 
-    in vec2 a_position;  // Current position [0,1]
+    in highp vec2 a_position;  // Current position [0,1]
     in vec2 a_seed;      // Initial grid position. Stable random seed, not updated.
     in float a_age;      // Particle age for tracking circular patterns
-    out vec2 v_position; // Updated position for transform feedback
+    out highp vec2 v_position; // Updated position for transform feedback
     out float v_age;     // Updated age for transform feedback
 
     uniform sampler2D u_velocity_texture;  // Texture with normalized velocities [0,1]
@@ -86,6 +142,7 @@ const vertexShader =
     uniform bool u_wrap_longitude;   // True when bounds span wraps east/west across the dateline
     ${velocityUniformGlsl}
     ${velocityDecodeGlsl}
+    ${coastalVelocityGlsl}
     ${temporalVelocityGlsl}
 
     // Hash stays in mediump range. The caller mixes a_seed with u_rand_seed.
@@ -102,13 +159,13 @@ const vertexShader =
     }
 
     // Shift value into [rangeStart, rangeStart + rangeSpan).
-    float wrapToRange(float value, float rangeStart, float rangeSpan) {
+    highp float wrapToRange(highp float value, highp float rangeStart, highp float rangeSpan) {
         return rangeStart + mod(value - rangeStart, rangeSpan);
     }
 
     // u_viewport is already data UV. A wrapping raster keeps one interval that
     // may cross the 0/1 edge, so slide x into that interval before comparing.
-    bool outsideCamera(vec2 pos) {
+    bool outsideCamera(highp vec2 pos) {
         highp float x = pos.x;
         if (u_wrap_longitude) {
             x = wrapToRange(pos.x, u_viewport.x, 1.0);
@@ -117,13 +174,13 @@ const vertexShader =
             || pos.y < u_viewport.y || pos.y > u_viewport.w;
     }
 
-    vec2 generateRandomPosition(vec2 seed) {
+    highp vec2 generateRandomPosition(vec2 seed) {
         vec2 r = vec2(
             random(seed + vec2(1.23, 4.56)),
             random(seed + vec2(7.89, 0.12))
         );
-        float x = mix(u_viewport.x, u_viewport.z, r.x);
-        float y = mix(u_viewport.y, u_viewport.w, r.y);
+        highp float x = mix(u_viewport.x, u_viewport.z, r.x);
+        highp float y = mix(u_viewport.y, u_viewport.w, r.y);
         if (u_wrap_longitude) {
             x = wrapToRange(x, 0.0, 1.0);
         } else {
@@ -178,7 +235,7 @@ const vertexShader =
         );
 
         // Update position with velocity
-        vec2 newPos = a_position + normalizedVelocity * u_speed_factor;
+        highp vec2 newPos = a_position + normalizedVelocity * u_speed_factor;
 
         // Reset rules
         bool shouldReset = false;
@@ -195,6 +252,16 @@ const vertexShader =
 
         if (outsideCamera(newPos) || !velocityValid || windSpeed < ${MIN_WIND_SPEED_MPH}) {
             shouldReset = true;
+        }
+
+        if (!shouldReset && u_coastal_forecast) {
+            highp vec2 midpoint = mix(a_position, newPos, 0.5);
+            if (onCoastalLand(midpoint)) {
+                shouldReset = true;
+            } else if (onCoastalLand(newPos)) {
+                // Keep the safe half-step when a full step would end on land.
+                newPos = midpoint;
+            }
         }
 
         // Reset based on age with increasing probability
@@ -242,9 +309,14 @@ const fragmentShader =
     uniform mediump vec2 u_speed_range;      // Speed range for normalization
     ${velocityUniformGlsl}
     ${velocityDecodeGlsl}
+    ${coastalVelocityGlsl}
 
-    in vec2 v_position;         // Current position
+    uniform highp mat3 u_ground;
+    uniform highp vec2 u_viewport_px;
+
+    in highp vec2 v_position;         // Current position
     in float v_trail_alpha;
+    flat in float v_coastal_speed;
     out vec4 fragColor;         // Output color
 
     void main() {
@@ -260,18 +332,19 @@ const fragmentShader =
         // Create soft-edged circular particles
         float edgeFactor = 1.0 - smoothstep(0.28, 0.5, dist);
 
-        // Sample wind velocity for coloring
-        vec4 velocity = texture(u_velocity_texture, v_position);
-
-        // Hide particles over no-data cells
-        if (velocityIsInvalid(velocity)) {
-            discard;
+        float speed;
+        if (u_coastal_forecast) {
+            highp vec3 ground = u_ground * vec3(gl_FragCoord.xy / u_viewport_px * 2.0 - 1.0, 1.0);
+            highp vec2 uv = coastUV(ground.xy / ground.z);
+            if (inCoastMask(uv) ? texture(u_coast_mask, uv).r >= 0.5 : v_coastal_speed >= 0.0) discard;
         }
-
-        vec2 wind = decodeVelocity(velocity);
-        float u = wind.x;
-        float v = wind.y;
-        float speed = length(vec2(u, v));
+        if (v_coastal_speed >= 0.0) {
+            speed = v_coastal_speed;
+        } else {
+            vec4 encoded = texture(u_velocity_texture, v_position);
+            if (velocityIsInvalid(encoded)) discard;
+            speed = length(decodeVelocity(encoded));
+        }
 
         if (speed < ${MIN_WIND_SPEED_MPH}) {
             discard;
@@ -301,7 +374,7 @@ const fragmentShader =
 const renderVertexShaderInner =
     `precision mediump float;
 
-    in vec2 a_position;      // Position in [0,1] range
+    in highp vec2 a_position;      // Position in [0,1] range
     in vec2 a_seed;
     in float a_trail_offset; // Trail offset (0=main particle, 1,2,3=trail segments)
 
@@ -315,9 +388,11 @@ const renderVertexShaderInner =
     uniform mediump vec2 u_value_range_v;  // Wind V component range
     ${velocityUniformGlsl}
     ${velocityDecodeGlsl}
+    ${coastalVelocityGlsl}
 
-    out vec2 v_position;     // Pass position to fragment shader
+    out highp vec2 v_position;     // Pass position to fragment shader
     out float v_trail_alpha;
+    flat out float v_coastal_speed;
 
     vec2 latLngToMercator(vec2 lnglat) {
         // Convert lng/lat to Web Mercator coordinates in [0, 1] range
@@ -359,11 +434,19 @@ const renderVertexShaderInner =
         float trailOffset = a_trail_offset;
 
         // Main particle position from buffer
-        vec2 mainPos = a_position;
+        highp vec2 mainPos = a_position;
 
         // Sample velocity at the main particle's position
-        vec4 velocityData = texture(u_velocity_texture, mainPos);
-        vec2 wind = decodeVelocity(velocityData);
+        vec2 wind;
+        v_coastal_speed = -1.0;
+        highp vec2 uv = u_coastal_forecast ? geographicCoastUV(mainPos) : vec2(-1.0);
+        if (inCoastMask(uv)) {
+            bool valid;
+            wind = sampleCoastalWind(mainPos, uv, valid);
+            v_coastal_speed = valid ? length(wind) : 0.0;
+        } else {
+            wind = decodeVelocity(texture(u_velocity_texture, mainPos));
+        }
 
         // Project the head, then place each trail dot a fixed number of pixels upwind.
         // Spacing does not depend on wind speed, so every tail has the same screen length.
@@ -441,13 +524,8 @@ function createProgram(gl, vertexSource, fragmentSource) {
     gl.attachShader(program, fragmentShader);
 
     // Specify transform feedback varyings if this is the update program
-    if (vertexSource.includes('out vec2 v_position')) {
-        // Check if we also have age tracking
-        if (vertexSource.includes('out float v_age')) {
-            gl.transformFeedbackVaryings(program, ['v_position', 'v_age'], gl.SEPARATE_ATTRIBS);
-        } else {
-            gl.transformFeedbackVaryings(program, ['v_position'], gl.SEPARATE_ATTRIBS);
-        }
+    if (vertexSource === vertexShaderSource) {
+        gl.transformFeedbackVaryings(program, ['v_position', 'v_age'], gl.SEPARATE_ATTRIBS);
     }
 
     gl.linkProgram(program);
@@ -766,7 +844,7 @@ export default class NewParticleMotion {
         );
 
         // Create programs with appropriate fragment shaders
-        this.updateProgram = createProgram(gl, vertexShader, updateFragmentShader);
+        this.updateProgram = createProgram(gl, vertexShaderSource, updateFragmentShader);
         if (this.mapRuntime === 'mapbox') {
             this.renderProgram = createProgram(gl, renderVertexShader, fragmentShader);
         }
@@ -1119,6 +1197,8 @@ export default class NewParticleMotion {
         gl.bindTexture(gl.TEXTURE_2D, this.sourceTexture);
         gl.uniform1i(this.updateProgram.u_velocity_texture, 0);
 
+        this.bindCoastalForecast(gl, this.updateProgram);
+
         // Bind current particle positions buffer as input
         gl.bindBuffer(gl.ARRAY_BUFFER, this.currentBuffer);
         gl.enableVertexAttribArray(this.updateProgram.a_position);
@@ -1171,6 +1251,49 @@ export default class NewParticleMotion {
         const program = createProgram(gl, vertexSource, fragmentShader);
         this.renderShaderMap.set(shaderData.variantName, program);
         return program;
+    }
+
+    setCoastalForecast(grid, coast) {
+        const gl = this.gl;
+        if (!gl || (this.coastalGrid === grid && this.coastMask === coast)) return;
+        const previousTexture = gl.getParameter(gl.TEXTURE_BINDING_2D);
+        if (this.rawWindTexture) gl.deleteTexture(this.rawWindTexture);
+        if (this.coastMask !== coast) {
+            if (this.coastTexture) gl.deleteTexture(this.coastTexture);
+            this.coastTexture = coast && createTexture(
+                gl, gl.NEAREST, coast.pixels, coast.width, coast.height, gl.R8, gl.RED
+            );
+        }
+        const previousWind = this.rawWindTexture;
+        this.rawWindTexture = grid && createTexture(gl, gl.NEAREST,
+            new Uint8Array(grid.unmaskedPixels.buffer, grid.unmaskedPixels.byteOffset, grid.unmaskedPixels.byteLength),
+            grid.width, grid.height
+        );
+        gl.bindTexture(gl.TEXTURE_2D,
+            previousTexture && previousTexture !== previousWind && gl.isTexture(previousTexture) ? previousTexture : null
+        );
+        this.rawWindRanges = grid && {
+            u: convertVelocityBoundsToMph(...grid.ranges.u, this.unit),
+            v: convertVelocityBoundsToMph(...grid.ranges.v, this.unit)
+        };
+        this.coastalGrid = grid;
+        this.coastMask = coast;
+        this.map?.triggerRepaint();
+    }
+
+    bindCoastalForecast(gl, program) {
+        const enabled = !!this.rawWindTexture && !!this.coastTexture && !this.physicalVelocity;
+        gl.uniform1i(program.u_coastal_forecast, enabled);
+        if (!enabled) return;
+        gl.activeTexture(gl.TEXTURE3);
+        gl.bindTexture(gl.TEXTURE_2D, this.rawWindTexture);
+        gl.uniform1i(program.u_raw_wind, 3);
+        gl.activeTexture(gl.TEXTURE4);
+        gl.bindTexture(gl.TEXTURE_2D, this.coastTexture);
+        gl.uniform1i(program.u_coast_mask, 4);
+        gl.uniform4fv(program.u_coast_bounds, this.coastMask.bounds);
+        gl.uniform2fv(program.u_raw_range_u, this.rawWindRanges.u);
+        gl.uniform2fv(program.u_raw_range_v, this.rawWindRanges.v);
     }
 
     setAppearance(appearance) {
@@ -1260,6 +1383,18 @@ export default class NewParticleMotion {
         // MapLibre projection uniforms for projectTile() in the vertex shader
         setProjectionUniforms(gl, renderProgram.program, defaultProjectionData);
         this.setParticleRenderUniforms(gl, renderProgram);
+        this.bindCoastalForecast(gl, renderProgram);
+        if (this.rawWindTexture) {
+            const m = defaultProjectionData.mainMatrix;
+            const inverse = new DOMMatrix([
+                m[0], m[1], 0, m[3], m[4], m[5], 0, m[7], 0, 0, 1, 0, m[12], m[13], 0, m[15]
+            ]).invertSelf();
+            gl.uniformMatrix3fv(renderProgram.u_ground, false, [
+                inverse.m11, inverse.m12, inverse.m14,
+                inverse.m21, inverse.m22, inverse.m24,
+                inverse.m41, inverse.m42, inverse.m44
+            ]);
+        }
         this.bindAndDrawParticles(gl, renderProgram);
 
         gl.disable(gl.BLEND);
@@ -1334,6 +1469,11 @@ export default class NewParticleMotion {
         // Delete textures
         if (this.sourceTexture) gl.deleteTexture(this.sourceTexture);
         if (this.colormapTexture) gl.deleteTexture(this.colormapTexture);
+
+        if (this.rawWindTexture) gl.deleteTexture(this.rawWindTexture);
+        if (this.coastTexture) gl.deleteTexture(this.coastTexture);
+        this.rawWindTexture = this.coastTexture = null;
+        this.coastalGrid = this.coastMask = null;
 
         // Clear references
         this.particleBufferA = null;
